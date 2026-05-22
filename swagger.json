@@ -1,0 +1,119 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hospital Asset Transfer API",
+    "description": "Microservices architecture for tracking and transferring hospital assets between wards.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "API Gateway"
+    }
+  ],
+  "paths": {
+    "/api/assets": {
+      "get": {
+        "summary": "Get all assets",
+        "description": "Retrieves the master inventory of all hospital assets.",
+        "responses": {
+          "200": {
+            "description": "Successful retrieval"
+          }
+        }
+      },
+      "post": {
+        "summary": "Register a new asset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "Oxygen Tank O2-1" },
+                  "type": { "type": "string", "example": "Supply" },
+                  "current_ward": { "type": "string", "example": "ER" },
+                  "qr_hash": { "type": "string", "example": "qr_hash_11111" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Asset registered successfully" }
+        }
+      }
+    },
+    "/api/assets/qr/{hash}": {
+      "get": {
+        "summary": "Validate asset by QR hash",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "qr_hash_12345"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Asset found and valid" },
+          "404": { "description": "Asset not found" }
+        }
+      }
+    },
+    "/api/wards": {
+      "get": {
+        "summary": "Get ward inventory list",
+        "description": "Fetches a list of all hospital wards and their current asset capacity.",
+        "responses": {
+          "200": { "description": "Successful retrieval" }
+        }
+      }
+    },
+    "/api/transfers": {
+      "post": {
+        "summary": "Initiate an asset transfer",
+        "description": "Communicates dynamically with the Asset Service to validate availability before logging the transfer.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "qr_hash": { "type": "string", "example": "qr_hash_67890" },
+                  "from_ward": { "type": "string", "example": "ER" },
+                  "to_ward": { "type": "string", "example": "ICU" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Transfer initiated successfully" },
+          "400": { "description": "Asset is currently not available for transfer" }
+        }
+      }
+    },
+    "/api/transfers/receive/{id}": {
+      "put": {
+        "summary": "Confirm asset receipt",
+        "description": "Marks the transfer as completed and updates the asset's location in the Asset Service.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": { "description": "Asset successfully received and inventory updated" }
+        }
+      }
+    }
+  }
+}

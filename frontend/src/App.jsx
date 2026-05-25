@@ -26,7 +26,7 @@ const api = {
       body: JSON.stringify(body),
     }),
 
-
+  // Returns { ok, data } — always safe to destructure, never throws
   del: async (path) => {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "DELETE",
@@ -38,7 +38,7 @@ const api = {
   },
 };
 
-
+// ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_COLOR = {
   Available:      { bg: "#d1fae5", text: "#065f46", border: "#6ee7b7" },
   "In Transit":   { bg: "#dbeafe", text: "#1e40af", border: "#93c5fd" },
@@ -48,7 +48,7 @@ const STATUS_COLOR = {
   "Out of Stock": { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
 };
 
-
+// Statuses that staff can set manually (system sets In Transit / In Use)
 const MANUAL_STATUSES = ["Available", "Maintenance", "Sterilization", "Out of Stock"];
 
 const Badge = ({ status }) => {
@@ -61,7 +61,7 @@ const Badge = ({ status }) => {
   );
 };
 
-
+// ─── AUTH HOOK ────────────────────────────────────────────────────────────────
 function useAuth() {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem("hams_user")); } catch { return null; }
@@ -103,7 +103,7 @@ function useAuth() {
   return { user, login, logout: doLogout };
 }
 
-
+// ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
 function LoginPage({ onLogin }) {
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
@@ -179,8 +179,8 @@ function LoginPage({ onLogin }) {
   );
 }
 
-
-
+// ─── NURSE PORTAL ─────────────────────────────────────────────────────────────
+// Nurses ONLY get the scanner. They cannot reach any management pages.
 function NursePortal({ user, logout }) {
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
@@ -211,7 +211,7 @@ function NursePortal({ user, logout }) {
   );
 }
 
-
+// ─── MAIN LAYOUT ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   { key: "dashboard",   label: "Dashboard",    icon: "📊", roles: ["admin", "staff"] },
   { key: "assets",      label: "Aset",         icon: "📦", roles: ["admin", "staff"] },
@@ -295,7 +295,7 @@ function MainLayout({ user, logout, children, activePage, setActivePage }) {
   );
 }
 
-
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function DashboardPage() {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -378,103 +378,135 @@ function DashboardPage() {
   );
 }
 
-
+// ─── ASSETS PAGE ──────────────────────────────────────────────────────────────
 function AssetsPage({ userRole }) {
-  const [assets, setAssets] = useState([]);
-  const [wards, setWards]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch]   = useState("");
-  const [filterType, setFilterType]     = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm]   = useState({ name: "", type: "", current_ward: "" });
-  const [saving, setSaving] = useState(false);
-  const [qrModal, setQrModal]     = useState(null);
-  const [editStatus, setEditStatus] = useState({ id: null, value: "" });
-  const canEdit = ["admin", "staff"].includes(userRole);
+  var [assets, setAssets] = useState([]);
+  var [wards, setWards]   = useState([]);
+  var [loading, setLoading] = useState(true);
+  var [search, setSearch]   = useState("");
+  var [filterType, setFilterType]     = useState("");
+  var [filterStatus, setFilterStatus] = useState("");
+  var [showForm, setShowForm] = useState(false);
+  var [form, setForm]   = useState({ name: "", type: "", current_ward: "" });
+  var [saving, setSaving] = useState(false);
+  var [qrModal, setQrModal]     = useState(null);
+  var [editStatus, setEditStatus] = useState({ id: null, value: "" });
+  
+  var [detailModal, setDetailModal] = useState(null);
+  var [detailData, setDetailData] = useState({ transfers: [], maintenance: [], loading: false });
 
-  const load = useCallback(() => {
+  var canEdit = ["admin", "staff"].includes(userRole);
+
+  var load = useCallback(function() {
     setLoading(true);
-    Promise.all([api.get("/assets"), api.get("/wards")]).then(([a, w]) => {
-      setAssets(a.data || []);
-      setWards(w.data || []);
+    Promise.all([api.get("/assets"), api.get("/wards")]).then(function(res) {
+      setAssets(res[0].data || []);
+      setWards(res[1].data || []);
       setLoading(false);
     });
   }, []);
-  useEffect(() => { load(); }, [load]);
+  
+  useEffect(function() { load(); }, [load]);
 
-  const types = [...new Set(assets.map((a) => a.type).filter(Boolean))];
+  var types = [...new Set(assets.map(function(a) { return a.type; }).filter(Boolean))];
 
-  const filtered = assets.filter((a) => {
-    const q = search.toLowerCase();
-    const matchSearch = !q || a.name?.toLowerCase().includes(q) || String(a.id).includes(q)
-      || a.type?.toLowerCase().includes(q) || a.current_ward?.toLowerCase().includes(q);
+  var filtered = assets.filter(function(a) {
+    var q = search.toLowerCase();
+    var matchSearch = !q || (a.name && a.name.toLowerCase().includes(q)) || String(a.id).includes(q)
+      || (a.type && a.type.toLowerCase().includes(q)) || (a.current_ward && a.current_ward.toLowerCase().includes(q));
     return matchSearch && (!filterType || a.type === filterType) && (!filterStatus || a.status === filterStatus);
   });
 
-  const handleAdd = async (e) => {
+  var handleAdd = async function(e) {
     e.preventDefault(); setSaving(true);
-    const hash = "qr_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
-    const res = await api.post("/assets", { ...form, qr_hash: hash });
+    var hash = "qr_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
+    var res = await api.post("/assets", { name: form.name, type: form.type, current_ward: form.current_ward, qr_hash: hash });
     setSaving(false);
     if (res.ok) { setShowForm(false); setForm({ name: "", type: "", current_ward: "" }); load(); }
-    else { const d = await res.json(); alert("Gagal: " + d.error); }
+    else { var d = await res.json(); alert("Gagal: " + d.error); }
   };
 
-  const handleDelete = async (id, name) => {
-    if (!confirm(`Hapus "${name}"?`)) return;
-    const { ok, data } = await api.del(`/assets/${id}`);
-    if (ok) load(); else alert("Gagal: " + data.error);
+  var handleDelete = async function(id, name) {
+    if (!confirm("Hapus " + name + "?")) return;
+    var res = await api.del("/assets/" + id);
+    if (res.ok) load(); else alert("Gagal: " + res.data.error);
   };
 
-  const handleStatusSave = async (id, ward) => {
+  var handleStatusSave = async function(id, ward) {
     if (!editStatus.value) return;
-    const res = await api.put(`/assets/${id}/location`, { current_ward: ward, status: editStatus.value });
+    var res = await api.put("/assets/" + id + "/location", { current_ward: ward, status: editStatus.value });
     if (res.ok) { load(); setEditStatus({ id: null, value: "" }); }
-    else { const d = await res.json(); alert("Gagal: " + d.error); }
+    else { var d = await res.json(); alert("Gagal: " + d.error); }
   };
 
-  const openQR = async (hash, name) => {
-    setQrModal({ hash, name, image: null });
-    const d = await api.get(`/assets/qr/generate/${hash}`);
-    setQrModal({ hash, name, image: d.image });
+  var openQR = async function(hash, name) {
+    setQrModal({ hash: hash, name: name, image: null });
+    var d = await api.get("/assets/qr/generate/" + hash);
+    setQrModal({ hash: hash, name: name, image: d.image });
   };
 
-  const sterilAssets = assets.filter((a) => a.status === "Sterilization");
+  var openDetail = async function(asset) {
+    setDetailModal(asset);
+    setDetailData({ transfers: [], maintenance: [], loading: true });
+
+    var mRes = await api.get("/maintenance/asset/" + asset.id);
+    var tRes = await api.get("/transfers/history");
+
+    var mData = mRes.data || [];
+    var tData = [];
+    
+    if (tRes.data) {
+      for (var i = 0; i < tRes.data.length; i++) {
+        if (String(tRes.data[i].asset_id) === String(asset.id)) {
+          tData.push(tRes.data[i]);
+        }
+      }
+    }
+
+    setDetailData({ transfers: tData, maintenance: mData, loading: false });
+  };
+
+  var calculateAge = function(dateString) {
+    if (!dateString) return "Umur tidak diketahui";
+    var d1 = new Date(dateString);
+    var d2 = new Date();
+    var diff = d2.getTime() - d1.getTime();
+    var days = Math.floor(diff / (1000 * 3600 * 24));
+    return days + " hari";
+  };
+
+  var sterilAssets = assets.filter(function(a) { return a.status === "Sterilization"; });
 
   return (
     <PageShell title="Manajemen Aset">
-      {/* Search & Filter */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <input style={{ ...inputStyle, width: 240 }}
           placeholder="🔍 Cari ID, nama, kategori, ruangan..."
-          value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={{ ...inputStyle, width: 160 }} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+          value={search} onChange={function(e) { setSearch(e.target.value); }} />
+        <select style={{ ...inputStyle, width: 160 }} value={filterType} onChange={function(e) { setFilterType(e.target.value); }}>
           <option value="">Semua Kategori</option>
-          {types.map((t) => <option key={t}>{t}</option>)}
+          {types.map(function(t) { return <option key={t}>{t}</option>; })}
         </select>
-        <select style={{ ...inputStyle, width: 160 }} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+        <select style={{ ...inputStyle, width: 160 }} value={filterStatus} onChange={function(e) { setFilterStatus(e.target.value); }}>
           <option value="">Semua Status</option>
-          {Object.keys(STATUS_COLOR).map((s) => <option key={s}>{s}</option>)}
+          {Object.keys(STATUS_COLOR).map(function(s) { return <option key={s}>{s}</option>; })}
         </select>
-        <span style={{ color: "#64748b", fontSize: 13 }}>{filtered.length} aset</span>
+        <span style={{ color: "#64748b", fontSize: 13 }}>{filtered.length + " aset"}</span>
         {canEdit && (
-          <button style={btnPrimary} onClick={() => setShowForm(!showForm)}>
+          <button style={btnPrimary} onClick={function() { setShowForm(!showForm); }}>
             {showForm ? "✕ Tutup" : "+ Daftarkan Aset"}
           </button>
         )}
       </div>
 
-      {/* Category breakdown */}
       {filterType && (
         <div style={{ ...cardStyle, marginBottom: 14, background: "#f0f9ff", padding: "12px 16px", fontSize: 13 }}>
-          <strong>Kategori: {filterType}</strong>{" — "}
-          {Object.entries(filtered.reduce((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {}))
-            .map(([s, c]) => `${s}: ${c}`).join("  |  ")}
+          <strong>{"Kategori: " + filterType}</strong>{" — "}
+          {Object.entries(filtered.reduce(function(acc, a) { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {}))
+            .map(function(entry) { return entry[0] + ": " + entry[1]; }).join("  |  ")}
         </div>
       )}
 
-      {/* Add form */}
       {canEdit && showForm && (
         <div style={{ ...cardStyle, marginBottom: 14, background: "#f0fdf4", border: "1.5px solid #86efac" }}>
           <h3 style={{ margin: "0 0 14px", fontSize: 14 }}>Daftarkan Aset Baru</h3>
@@ -482,50 +514,25 @@ function AssetsPage({ userRole }) {
             <div>
               <label style={labelStyle}>Nama Aset</label>
               <input style={{ ...inputStyle, width: 190 }} value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="cth: Monitor A1" required />
+                onChange={function(e) { setForm({ ...form, name: e.target.value }); }} placeholder="cth: Monitor A1" required />
             </div>
             <div>
               <label style={labelStyle}>Kategori</label>
               <input style={{ ...inputStyle, width: 140 }} list="type-dl" value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="cth: Electronic" required />
-              <datalist id="type-dl">{types.map((t) => <option key={t} value={t} />)}</datalist>
+                onChange={function(e) { setForm({ ...form, type: e.target.value }); }} placeholder="cth: Electronic" required />
+              <datalist id="type-dl">{types.map(function(t) { return <option key={t} value={t} />; })}</datalist>
             </div>
             <div>
               <label style={labelStyle}>Ruangan</label>
               <input style={{ ...inputStyle, width: 130 }} list="ward-dl" value={form.current_ward}
-                onChange={(e) => setForm({ ...form, current_ward: e.target.value })} placeholder="cth: ICU" required />
-              <datalist id="ward-dl">{wards.map((w) => <option key={w.id} value={w.ward_name} />)}</datalist>
+                onChange={function(e) { setForm({ ...form, current_ward: e.target.value }); }} placeholder="cth: ICU" required />
+              <datalist id="ward-dl">{wards.map(function(w) { return <option key={w.id} value={w.ward_name} />; })}</datalist>
             </div>
             <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Menyimpan..." : "Simpan"}</button>
           </form>
         </div>
       )}
 
-      {/* Sterilization quick panel */}
-      {canEdit && sterilAssets.length > 0 && (
-        <div style={{ ...cardStyle, marginBottom: 14, border: "1.5px solid #c4b5fd", background: "#faf5ff" }}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#5b21b6" }}>
-            🧪 Aset Sedang Sterilisasi ({sterilAssets.length})
-          </h3>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {sterilAssets.map((a) => (
-              <div key={a.id} style={{ background: "#ede9fe", border: "1px solid #c4b5fd", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-                <strong>{a.name}</strong>
-                <span style={{ color: "#64748b", marginLeft: 6 }}>— {a.current_ward}</span>
-                <div style={{ marginTop: 8 }}>
-                  <button style={{ ...btnSmall, background: "#d1fae5", color: "#065f46" }}
-                    onClick={async () => {
-                      const res = await api.put(`/assets/${a.id}/location`, { current_ward: a.current_ward, status: "Available" });
-                      if (res.ok) load();
-                    }}>✓ Selesai Sterilisasi</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main table */}
       {loading ? <p style={{ color: "#64748b", padding: 20 }}>Memuat data...</p> : (
         <div style={cardStyle}>
           <div style={{ overflowX: "auto" }}>
@@ -533,16 +540,16 @@ function AssetsPage({ userRole }) {
               <thead>
                 <tr>
                   {["ID", "Nama", "Kategori", "Ruangan", "Status", canEdit ? "Aksi" : null]
-                    .filter(Boolean).map((h) => <th key={h} style={thStyle}>{h}</th>)}
+                    .filter(Boolean).map(function(h) { return <th key={h} style={thStyle}>{h}</th>; })}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr><td colSpan={6} style={{ ...tdStyle, textAlign: "center", color: "#94a3b8" }}>Tidak ada data</td></tr>
                 )}
-                {filtered.map((a) => (
+                {filtered.map(function(a) { return (
                   <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>#{a.id}</td>
+                    <td style={tdStyle}>{"#" + a.id}</td>
                     <td style={tdStyle}><strong>{a.name}</strong></td>
                     <td style={tdStyle}>{a.type}</td>
                     <td style={tdStyle}>{a.current_ward}</td>
@@ -551,63 +558,136 @@ function AssetsPage({ userRole }) {
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           <select style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: 145 }}
                             value={editStatus.value}
-                            onChange={(e) => setEditStatus({ id: a.id, value: e.target.value })}>
+                            onChange={function(e) { setEditStatus({ id: a.id, value: e.target.value }); }}>
                             <option value="">-- Pilih Status --</option>
-                            {MANUAL_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                            {MANUAL_STATUSES.map(function(s) { return <option key={s}>{s}</option>; })}
                           </select>
                           <button style={{ ...btnSmall, background: "#16a34a", color: "white" }}
-                            onClick={() => handleStatusSave(a.id, a.current_ward)}>✓</button>
-                          <button style={btnSmall} onClick={() => setEditStatus({ id: null, value: "" })}>✕</button>
+                            onClick={function() { handleStatusSave(a.id, a.current_ward); }}>✓</button>
+                          <button style={btnSmall} onClick={function() { setEditStatus({ id: null, value: "" }); }}>✕</button>
                         </div>
                       ) : <Badge status={a.status} />}
                     </td>
                     {canEdit && (
                       <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                          <button style={{ ...btnSmall, background: "#f3e8ff", color: "#7e22ce" }}
+                            onClick={function() { openDetail(a); }}>📄 Detail</button>
                           <button style={{ ...btnSmall, background: "#dbeafe", color: "#1e40af" }}
-                            onClick={() => openQR(a.qr_hash, a.name)}>🖨 QR</button>
+                            onClick={function() { openQR(a.qr_hash, a.name); }}>🖨 QR</button>
                           {!["In Transit", "In Use"].includes(a.status) && (
                             <button style={{ ...btnSmall, background: "#fef3c7", color: "#92400e" }}
-                              onClick={() => setEditStatus({ id: a.id, value: a.status })}>✎ Status</button>
+                              onClick={function() { setEditStatus({ id: a.id, value: a.status }); }}>✎ Status</button>
                           )}
                           {["Available", "Out of Stock", "Sterilization"].includes(a.status) && (
                             <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
-                              onClick={() => handleDelete(a.id, a.name)}>🗑</button>
+                              onClick={function() { handleDelete(a.id, a.name); }}>🗑</button>
                           )}
                         </div>
                       </td>
                     )}
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* QR Modal */}
       {qrModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-          onClick={() => setQrModal(null)}>
+          onClick={function() { setQrModal(null); }}>
           <div style={{ background: "white", borderRadius: 16, padding: 32, textAlign: "center", minWidth: 280 }}
-            onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 16px" }}>Label QR: {qrModal.name}</h3>
+            onClick={function(e) { e.stopPropagation(); }}>
+            <h3 style={{ margin: "0 0 16px" }}>{"Label QR: " + qrModal.name}</h3>
             {qrModal.image
               ? <img src={qrModal.image} alt="QR Code" style={{ width: 200, height: 200, border: "2px solid #e2e8f0", borderRadius: 8 }} />
               : <div style={{ width: 200, height: 200, background: "#f1f5f9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", color: "#94a3b8" }}>Memuat...</div>
             }
-            <p style={{ fontSize: 12, color: "#94a3b8", margin: "12px 0" }}>Hash: {qrModal.hash}</p>
+            <p style={{ fontSize: 12, color: "#94a3b8", margin: "12px 0" }}>{"Hash: " + qrModal.hash}</p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-              <button style={btnPrimary} onClick={() => window.print()}>🖨 Cetak Stiker</button>
-              <button style={{ ...btnPrimary, background: "#64748b" }} onClick={() => setQrModal(null)}>Tutup</button>
+              <button style={btnPrimary} onClick={function() { window.print(); }}>🖨 Cetak Stiker</button>
+              <button style={{ ...btnPrimary, background: "#64748b" }} onClick={function() { setQrModal(null); }}>Tutup</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {detailModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={function() { setDetailModal(null); }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 24, width: 600, maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto" }} onClick={function(e) { e.stopPropagation(); }}>
+            
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>{"Detail Aset: " + detailModal.name}</h3>
+              <button style={btnSmall} onClick={function() { setDetailModal(null); }}>✕</button>
+            </div>
+
+            <div style={{ background: "#f8fafc", padding: "12px 16px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #e2e8f0" }}>
+              <div style={{ marginBottom: 4 }}><strong>ID Aset:</strong> {"#" + detailModal.id}</div>
+              <div style={{ marginBottom: 4 }}><strong>Kategori:</strong> {detailModal.type}</div>
+              <div style={{ marginBottom: 4 }}><strong>Lokasi Terakhir:</strong> {detailModal.current_ward}</div>
+              <div><strong>Umur Aset:</strong> {calculateAge(detailModal.created_at)}</div>
+            </div>
+
+            <h4 style={{ margin: "0 0 10px", color: "#0f172a" }}>Riwayat Perpindahan</h4>
+            <div style={{ marginBottom: 20, border: "1px solid #e2e8f0", borderRadius: 8, maxHeight: 180, overflowY: "auto" }}>
+              {detailData.loading ? <div style={{ padding: 12, fontSize: 13 }}>Memuat data...</div> : (
+                detailData.transfers.length === 0 ? <div style={{ padding: 12, fontSize: 13, color: "#64748b" }}>Belum ada riwayat perpindahan</div> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead style={{ background: "#f1f5f9" }}>
+                      <tr><th style={{ padding: 8, textAlign: "left" }}>Rute</th><th style={{ padding: 8, textAlign: "left" }}>Tanggal</th><th style={{ padding: 8, textAlign: "left" }}>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {detailData.transfers.map(function(t) { return (
+                        <tr key={t.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                          <td style={{ padding: 8 }}>{t.from_ward + " ➔ " + t.to_ward}</td>
+                          <td style={{ padding: 8 }}>{fmtDate(t.requested_at)}</td>
+                          <td style={{ padding: 8 }}>{t.transfer_status}</td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+
+            <h4 style={{ margin: "0 0 10px", color: "#0f172a" }}>Riwayat Laporan Kerusakan</h4>
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, maxHeight: 220, overflowY: "auto" }}>
+              {detailData.loading ? <div style={{ padding: 12, fontSize: 13 }}>Memuat data...</div> : (
+                detailData.maintenance.length === 0 ? <div style={{ padding: 12, fontSize: 13, color: "#64748b" }}>Aset belum pernah dilaporkan rusak</div> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <tbody>
+                      {detailData.maintenance.map(function(m) { return (
+                        <tr key={m.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                          <td style={{ padding: "12px 10px" }}>
+                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + m.report_date}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
+                            <div style={{ marginBottom: 8 }}>{"Kendala: " + m.description}</div>
+                            {m.action_date ? (
+                              <div style={{ background: "#f0fdf4", borderLeft: "3px solid #22c55e", padding: 8, borderRadius: "0 6px 6px 0" }}>
+                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + m.action_date + ") - Status: " + m.status}</strong></div>
+                                <div>{"Keterangan: " + (m.action_notes || "Tidak ada catatan tambahan")}</div>
+                              </div>
+                            ) : (
+                              <div style={{ background: "#fffbeb", borderLeft: "3px solid #f59e0b", padding: 8, borderRadius: "0 6px 6px 0", color: "#92400e" }}>
+                                <strong>Belum ada tindakan perbaikan</strong>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+
           </div>
         </div>
       )}
     </PageShell>
   );
-
-
+}
+// ─── WARDS PAGE ───────────────────────────────────────────────────────────────
 function WardsPage() {
   const [wards, setWards]   = useState([]);
   const [assets, setAssets] = useState([]);
@@ -693,6 +773,7 @@ function WardsPage() {
   );
 }
 
+// ─── TRANSFER PAGE ────────────────────────────────────────────────────────────
 function TransferPage({ userRole }) {
   const [assets, setAssets] = useState([]);
   const [wards, setWards]   = useState([]);
@@ -735,7 +816,7 @@ function TransferPage({ userRole }) {
     }
   };
 
-
+  // FIXED: uses new api.del which returns {ok, data} — no more silent failure
   const handleCancel = async (assetId, name) => {
     if (!confirm(`Batalkan transit untuk "${name}"?`)) return;
     const { ok, data } = await api.del(`/transfers/cancel/${assetId}`);
@@ -821,6 +902,7 @@ function TransferPage({ userRole }) {
   );
 }
 
+// ─── SCANNER PAGE ─────────────────────────────────────────────────────────────
 
 function ScannerPage({ userRole }) {
   const [manualHash, setManualHash] = useState("");
@@ -1032,7 +1114,7 @@ function ScannerPage({ userRole }) {
   );
 }
 
-
+// ─── MAINTENANCE PAGE ─────────────────────────────────────────────────────────
 function MaintenancePage({ user }) {
   const [reports, setReports]   = useState([]);
   const [assets, setAssets]     = useState([]);
@@ -1213,7 +1295,7 @@ function MaintenancePage({ user }) {
   );
 }
 
-
+// ─── HISTORY PAGE ─────────────────────────────────────────────────────────────
 function HistoryPage() {
   const [transfers, setTransfers] = useState([]);
   const [assets, setAssets]       = useState([]);
@@ -1288,7 +1370,7 @@ function HistoryPage() {
   );
 }
 
-
+// ─── USERS PAGE ───────────────────────────────────────────────────────────────
 function UsersPage({ currentUser }) {
   const [users, setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1406,7 +1488,7 @@ function UsersPage({ currentUser }) {
   );
 }
 
-
+// ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 function PageShell({ title, children }) {
   return (
     <div style={{ padding: "28px 32px", maxWidth: 1120 }}>
@@ -1436,6 +1518,7 @@ function DataTable({ cols, rows }) {
   );
 }
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const today  = () => new Date().toISOString().split("T")[0];
 const fmtDate = (d) => { try { return new Date(d).toLocaleString("id-ID"); } catch { return d; } };
 
@@ -1478,4 +1561,3 @@ export default function App() {
   );
 }
 
-}

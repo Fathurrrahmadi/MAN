@@ -47,19 +47,34 @@ app.put('/api/assets/:id/location', async (req, res) => {
     }
 });
 
+app.put('/api/wards/:id', async function(req, res) {
+    var newName = req.body.ward_name;
+    try {
+        var oldData = await db.query("SELECT ward_name FROM wards WHERE id = ?", [req.params.id]);
+        if (oldData[0].length > 0) {
+            var oldName = oldData[0][0].ward_name;
+            await db.query("UPDATE wards SET ward_name = ? WHERE id = ?", [newName, req.params.id]);
+            await db.query("UPDATE assets SET current_ward = ? WHERE current_ward = ?", [newName, oldName]);
+        }
+        res.json({ message: "Ruangan berhasil diupdate" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ==========================================
 // [!] NEW MISSING ROUTES ADDED BELOW
 // ==========================================
 
-// 4. Register a new asset (Used by index.html form)
+// Tambah aset baru
 app.post('/api/assets', async (req, res) => {
-    const { name, type, current_ward, qr_hash } = req.body;
+    const { name, type, sub_category, current_ward, qr_hash } = req.body;
     try {
         await db.query(
-            "INSERT INTO assets (name, type, current_ward, status, qr_hash) VALUES (?, ?, ?, 'Available', ?)",
-            [name, type, current_ward, qr_hash]
+            'INSERT INTO assets (name, type, sub_category, current_ward, qr_hash) VALUES (?, ?, ?, ?, ?)',
+            [name, type, sub_category || '-', current_ward, qr_hash]
         );
-        res.status(201).json({ message: "Asset registered successfully" });
+        res.json({ message: 'Asset added successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -137,13 +152,23 @@ app.post('/api/maintenance', async (req, res) => {
 
 // POST a follow-up action for a report
 app.post('/api/maintenance/:id/action', async (req, res) => {
-    const { action_date, vendor, cost, duration_days, notes, status } = req.body;
+    const { action_date, vendor, cost, duration_days, notes, status, start_date, estimated_end_date } = req.body;
     const reportId = req.params.id;
     try {
         await db.query(
-            `INSERT INTO maintenance_actions (report_id, action_date, vendor, cost, duration_days, notes, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [reportId, action_date, vendor || '', cost || 0, duration_days || 0, notes || '', status || 'Diperbaiki']
+            `INSERT INTO maintenance_actions (report_id, start_date, estimated_end_date, action_date, vendor, cost, duration_days, notes, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                reportId, 
+                start_date || null, 
+                estimated_end_date || null, 
+                action_date || null,   // <-- Ini kunci fix-nya
+                vendor || '', 
+                cost || 0, 
+                duration_days || 0, 
+                notes || '', 
+                status || 'Diperbaiki'
+            ]
         );
         // Update report status
         await db.query(
@@ -155,7 +180,6 @@ app.post('/api/maintenance/:id/action', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 // GET maintenance history for a specific asset
 app.get('/api/maintenance/asset/:asset_id', async (req, res) => {
     try {

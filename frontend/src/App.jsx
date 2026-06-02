@@ -33,7 +33,7 @@ const api = {
       headers: authHeader(),
     });
     let data = {};
-    try { data = await res.json(); } catch (_) { /* empty body */ }
+    try { data = await res.json(); } catch (err) { console.error(err); }
     return { ok: res.ok, status: res.status, data };
   },
 };
@@ -297,105 +297,159 @@ function MainLayout({ user, logout, children, activePage, setActivePage }) {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function DashboardPage() {
-  const [assets, setAssets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  var [assets, setAssets] = useState([]);
+  var [loading, setLoading] = useState(true);
+  var [expandedCat, setExpandedCat] = useState(null); // Untuk sistem 2 layer
 
-  useEffect(() => {
-    api.get("/assets").then((a) => { setAssets(a.data || []); setLoading(false); });
+  var load = useCallback(function() {
+    setLoading(true);
+    api.get("/assets").then(function(res) {
+      setAssets(res.data || []);
+      setLoading(false);
+    });
   }, []);
 
-  const counts = {
-    total:       assets.length,
-    available:   assets.filter((a) => a.status === "Available").length,
-    inTransit:   assets.filter((a) => a.status === "In Transit").length,
-    inUse:       assets.filter((a) => a.status === "In Use").length,
-    maintenance: assets.filter((a) => a.status === "Maintenance").length,
-    steril:      assets.filter((a) => a.status === "Sterilization").length,
-  };
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(function() { load(); }, [load]);
 
-  const byType = assets.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
-  const byWard = assets.reduce((acc, a) => { acc[a.current_ward] = (acc[a.current_ward] || 0) + 1; return acc; }, {});
+  // Logika mengelompokkan data (Layer 1: Kategori, Layer 2: Sub-kategori)
+  var categories = {};
+  for (var i = 0; i < assets.length; i++) {
+    var a = assets[i];
+    var cat = a.type || "Lainnya";
+    var sub = a.sub_category || "Umum";
 
-  if (loading) return <PageShell title="Dashboard"><p style={{ color: "#64748b" }}>Memuat data...</p></PageShell>;
+    if (!categories[cat]) {
+      categories[cat] = { total: 0, available: 0, inUse: 0, maintenance: 0, subs: {} };
+    }
+    
+    categories[cat].total++;
+    if (a.status === "Available") categories[cat].available++;
+    if (a.status === "In Use" || a.status === "In Transit") categories[cat].inUse++;
+    if (a.status === "Maintenance" || a.status === "Sterilization") categories[cat].maintenance++;
+
+    if (!categories[cat].subs[sub]) {
+      categories[cat].subs[sub] = { total: 0, available: 0, inUse: 0, maintenance: 0 };
+    }
+    
+    categories[cat].subs[sub].total++;
+    if (a.status === "Available") categories[cat].subs[sub].available++;
+    if (a.status === "In Use" || a.status === "In Transit") categories[cat].subs[sub].inUse++;
+    if (a.status === "Maintenance" || a.status === "Sterilization") categories[cat].subs[sub].maintenance++;
+  }
+
+  if (loading) return <PageShell title="Dashboard HAMS"><p style={{ color: "#64748b" }}>Memuat dashboard...</p></PageShell>;
 
   return (
-    <PageShell title="Dashboard Monitoring Aset">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14, marginBottom: 28 }}>
-        {[
-          { label: "Total Aset",  value: counts.total,       color: "#0369a1", bg: "#e0f2fe" },
-          { label: "Tersedia",    value: counts.available,   color: "#065f46", bg: "#d1fae5" },
-          { label: "In Transit",  value: counts.inTransit,   color: "#1e40af", bg: "#dbeafe" },
-          { label: "Digunakan",   value: counts.inUse,       color: "#92400e", bg: "#fef3c7" },
-          { label: "Maintenance", value: counts.maintenance, color: "#991b1b", bg: "#fee2e2" },
-          { label: "Sterilisasi", value: counts.steril,      color: "#5b21b6", bg: "#ede9fe" },
-        ].map((c) => (
-          <div key={c.label} style={{ background: c.bg, borderRadius: 14, padding: "18px 14px", textAlign: "center" }}>
-            <div style={{ fontSize: 30, fontWeight: 700, color: c.color }}>{c.value}</div>
-            <div style={{ fontSize: 11, color: c.color, fontWeight: 600, marginTop: 4 }}>{c.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        <div style={cardStyle}>
-          <h3 style={sectionTitle}>Distribusi per Ruangan</h3>
-          {Object.entries(byWard).map(([ward, count]) => (
-            <div key={ward} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13 }}>
-                <span style={{ fontWeight: 600 }}>{ward}</span>
-                <span style={{ color: "#64748b" }}>{count} aset</span>
-              </div>
-              <div style={{ background: "#e2e8f0", borderRadius: 99, height: 7 }}>
-                <div style={{ width: `${counts.total ? (count / counts.total) * 100 : 0}%`, background: "#0369a1", height: 7, borderRadius: 99 }} />
-              </div>
-            </div>
-          ))}
+    <PageShell title="Dashboard Utama">
+      
+      {/* KOTAK STATISTIK TOTAL */}
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+        <div style={{ ...cardStyle, flex: 1, minWidth: 200, borderLeft: "4px solid #3b82f6" }}>
+          <h3 style={{ margin: "0 0 5px", color: "#64748b", fontSize: 13 }}>Total Aset Terdaftar</h3>
+          <p style={{ margin: 0, fontSize: 24, fontWeight: "bold", color: "#1e293b" }}>{assets.length}</p>
         </div>
-        <div style={cardStyle}>
-          <h3 style={sectionTitle}>Distribusi per Kategori</h3>
-          {Object.entries(byType).map(([type, count]) => (
-            <div key={type} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13 }}>
-                <span style={{ fontWeight: 600 }}>{type}</span>
-                <span style={{ color: "#64748b" }}>{count} aset</span>
-              </div>
-              <div style={{ background: "#e2e8f0", borderRadius: 99, height: 7 }}>
-                <div style={{ width: `${counts.total ? (count / counts.total) * 100 : 0}%`, background: "#7c3aed", height: 7, borderRadius: 99 }} />
-              </div>
-            </div>
-          ))}
+        <div style={{ ...cardStyle, flex: 1, minWidth: 200, borderLeft: "4px solid #22c55e" }}>
+          <h3 style={{ margin: "0 0 5px", color: "#64748b", fontSize: 13 }}>Aset Tersedia</h3>
+          <p style={{ margin: 0, fontSize: 24, fontWeight: "bold", color: "#16a34a" }}>
+            {assets.filter(function(a) { return a.status === "Available"; }).length}
+          </p>
+        </div>
+        <div style={{ ...cardStyle, flex: 1, minWidth: 200, borderLeft: "4px solid #ef4444" }}>
+          <h3 style={{ margin: "0 0 5px", color: "#64748b", fontSize: 13 }}>Sedang Diperbaiki</h3>
+          <p style={{ margin: 0, fontSize: 24, fontWeight: "bold", color: "#dc2626" }}>
+            {assets.filter(function(a) { return a.status === "Maintenance"; }).length}
+          </p>
         </div>
       </div>
 
-      <div style={{ ...cardStyle, marginTop: 20 }}>
-        <h3 style={sectionTitle}>Aset Terbaru</h3>
-        <DataTable
-          cols={["ID", "Nama", "Tipe", "Ruangan", "Status"]}
-          rows={assets.slice(0, 8).map((a) => [`#${a.id}`, a.name, a.type, a.current_ward, <Badge key={a.id} status={a.status} />])}
-        />
+      <h3 style={sectionTitle}>Data Per Kategori & Grafik Pemakaian (Klik untuk detail)</h3>
+      
+      {/* DASHBOARD 2 LAYER */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {Object.keys(categories).map(function(catName) {
+          var c = categories[catName];
+          var pctUse = c.total > 0 ? Math.round((c.inUse / c.total) * 100) : 0;
+          var isExpanded = expandedCat === catName;
+
+          return (
+            <div key={catName} style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+              {/* LAYER 1: KATEGORI UTAMA */}
+              <div 
+                style={{ padding: "16px", cursor: "pointer", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, background: isExpanded ? "#f8fafc" : "white" }}
+                onClick={function() { setExpandedCat(isExpanded ? null : catName); }}
+              >
+                <div style={{ width: 180 }}>
+                  <h4 style={{ margin: 0, fontSize: 16 }}>{catName}</h4>
+                  <span style={{ fontSize: 12, color: "#64748b" }}>{c.total + " Total Aset"}</span>
+                </div>
+                
+                {/* Info Angka */}
+                <div style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                  <span style={{ background: "#d1fae5", color: "#065f46", padding: "4px 10px", borderRadius: 6 }}>Tersedia: <strong>{c.available}</strong></span>
+                  <span style={{ background: "#fef3c7", color: "#92400e", padding: "4px 10px", borderRadius: 6 }}>Dipakai: <strong>{c.inUse}</strong></span>
+                  <span style={{ background: "#fee2e2", color: "#991b1b", padding: "4px 10px", borderRadius: 6 }}>Rusak: <strong>{c.maintenance}</strong></span>
+                </div>
+
+                {/* Grafik Bar Sederhana */}
+                <div style={{ flex: 1, minWidth: 150 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4, color: "#64748b" }}>
+                    <span>Pemakaian</span>
+                    <span>{pctUse + "%"}</span>
+                  </div>
+                  <div style={{ height: 8, background: "#e2e8f0", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: pctUse + "%", background: pctUse > 80 ? "#ef4444" : pctUse > 50 ? "#f59e0b" : "#3b82f6", transition: "width 0.5s" }}></div>
+                  </div>
+                </div>
+                
+                <div style={{ fontWeight: "bold", color: "#94a3b8" }}>{isExpanded ? "▲" : "▼"}</div>
+              </div>
+
+              {/* LAYER 2: SUB-KATEGORI (Muncul kalau diklik) */}
+              {isExpanded && (
+                <div style={{ background: "#f1f5f9", padding: "16px", borderTop: "1px solid #e2e8f0" }}>
+                  <h5 style={{ margin: "0 0 10px", color: "#475569" }}>Detail Sub-Kategori:</h5>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+                    {Object.keys(c.subs).map(function(subName) {
+                      var s = c.subs[subName];
+                      return (
+                        <div key={subName} style={{ background: "white", padding: 12, borderRadius: 8, border: "1px solid #cbd5e1" }}>
+                          <strong style={{ display: "block", marginBottom: 6, color: "#0f172a" }}>{subName}</strong>
+                          <div style={{ fontSize: 12, color: "#475569", display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Tersedia:</span> <b style={{color: "#16a34a"}}>{s.available}</b></div>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Dipakai:</span> <b style={{color: "#d97706"}}>{s.inUse}</b></div>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Rusak:</span> <b style={{color: "#dc2626"}}>{s.maintenance}</b></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </PageShell>
   );
 }
 
 // ─── ASSETS PAGE ──────────────────────────────────────────────────────────────
-function AssetsPage({ userRole }) {
+function AssetsPage() {
   var [assets, setAssets] = useState([]);
   var [wards, setWards]   = useState([]);
   var [loading, setLoading] = useState(true);
   var [search, setSearch]   = useState("");
-  var [filterType, setFilterType]     = useState("");
   var [filterStatus, setFilterStatus] = useState("");
   var [showForm, setShowForm] = useState(false);
-  var [form, setForm]   = useState({ name: "", type: "", current_ward: "" });
+  var [form, setForm]   = useState({ name: "", type: "", sub_category: "", current_ward: "" });
   var [saving, setSaving] = useState(false);
   var [qrModal, setQrModal]     = useState(null);
   var [editStatus, setEditStatus] = useState({ id: null, value: "" });
-  
   var [detailModal, setDetailModal] = useState(null);
   var [detailData, setDetailData] = useState({ transfers: [], maintenance: [], loading: false });
 
-  var canEdit = ["admin", "staff"].includes(userRole);
+  var canEdit = true;
 
   var load = useCallback(function() {
     setLoading(true);
@@ -405,25 +459,56 @@ function AssetsPage({ userRole }) {
       setLoading(false);
     });
   }, []);
-  
+// eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(function() { load(); }, [load]);
 
-  var types = [...new Set(assets.map(function(a) { return a.type; }).filter(Boolean))];
+  var types = [];
+  for (var i = 0; i < assets.length; i++) {
+    if (assets[i].type && types.indexOf(assets[i].type) === -1) {
+      types.push(assets[i].type);
+    }
+  }
 
-  var filtered = assets.filter(function(a) {
+  var filtered = [];
+  for (var j = 0; j < assets.length; j++) {
+    var a = assets[j];
     var q = search.toLowerCase();
-    var matchSearch = !q || (a.name && a.name.toLowerCase().includes(q)) || String(a.id).includes(q)
-      || (a.type && a.type.toLowerCase().includes(q)) || (a.current_ward && a.current_ward.toLowerCase().includes(q));
-    return matchSearch && (!filterType || a.type === filterType) && (!filterStatus || a.status === filterStatus);
-  });
+    var matchSearch = !q || (a.name && a.name.toLowerCase().indexOf(q) > -1) || String(a.id).indexOf(q) > -1 || (a.current_ward && a.current_ward.toLowerCase().indexOf(q) > -1);
+    var matchStatus = !filterStatus || a.status === filterStatus;
+    if (matchSearch && matchStatus) {
+      filtered.push(a);
+    }
+  }
+
+  var grouped = {};
+  for (var k = 0; k < filtered.length; k++) {
+    var ast = filtered[k];
+    var cat = ast.type || "Tanpa Kategori";
+    var sub = ast.sub_category || "Umum";
+    if (!grouped[cat]) grouped[cat] = {};
+    if (!grouped[cat][sub]) grouped[cat][sub] = [];
+    grouped[cat][sub].push(ast);
+  }
 
   var handleAdd = async function(e) {
     e.preventDefault(); setSaving(true);
     var hash = "qr_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
-    var res = await api.post("/assets", { name: form.name, type: form.type, current_ward: form.current_ward, qr_hash: hash });
+    var res = await api.post("/assets", { 
+      name: form.name, 
+      type: form.type, 
+      sub_category: form.sub_category, 
+      current_ward: form.current_ward, 
+      qr_hash: hash 
+    });
     setSaving(false);
-    if (res.ok) { setShowForm(false); setForm({ name: "", type: "", current_ward: "" }); load(); }
-    else { var d = await res.json(); alert("Gagal: " + d.error); }
+    if (res.ok) { 
+      setShowForm(false); 
+      setForm({ name: "", type: "", sub_category: "", current_ward: "" }); 
+      load(); 
+    } else { 
+      var d = await res.json(); 
+      alert("Gagal: " + d.error); 
+    }
   };
 
   var handleDelete = async function(id, name) {
@@ -448,21 +533,17 @@ function AssetsPage({ userRole }) {
   var openDetail = async function(asset) {
     setDetailModal(asset);
     setDetailData({ transfers: [], maintenance: [], loading: true });
-
     var mRes = await api.get("/maintenance/asset/" + asset.id);
     var tRes = await api.get("/transfers/history");
-
     var mData = mRes.data || [];
     var tData = [];
-    
     if (tRes.data) {
-      for (var i = 0; i < tRes.data.length; i++) {
-        if (String(tRes.data[i].asset_id) === String(asset.id)) {
-          tData.push(tRes.data[i]);
+      for (var p = 0; p < tRes.data.length; p++) {
+        if (String(tRes.data[p].asset_id) === String(asset.id)) {
+          tData.push(tRes.data[p]);
         }
       }
     }
-
     setDetailData({ transfers: tData, maintenance: mData, loading: false });
   };
 
@@ -475,18 +556,18 @@ function AssetsPage({ userRole }) {
     return days + " hari";
   };
 
-  var sterilAssets = assets.filter(function(a) { return a.status === "Sterilization"; });
+  var fmtDate = function(d) {
+    if (!d) return "-";
+    return new Date(d).toLocaleString("id-ID");
+  };
 
   return (
     <PageShell title="Manajemen Aset">
+      
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <input style={{ ...inputStyle, width: 240 }}
-          placeholder="🔍 Cari ID, nama, kategori, ruangan..."
+          placeholder="🔍 Cari ID, nama, ruangan..."
           value={search} onChange={function(e) { setSearch(e.target.value); }} />
-        <select style={{ ...inputStyle, width: 160 }} value={filterType} onChange={function(e) { setFilterType(e.target.value); }}>
-          <option value="">Semua Kategori</option>
-          {types.map(function(t) { return <option key={t}>{t}</option>; })}
-        </select>
         <select style={{ ...inputStyle, width: 160 }} value={filterStatus} onChange={function(e) { setFilterStatus(e.target.value); }}>
           <option value="">Semua Status</option>
           {Object.keys(STATUS_COLOR).map(function(s) { return <option key={s}>{s}</option>; })}
@@ -498,14 +579,6 @@ function AssetsPage({ userRole }) {
           </button>
         )}
       </div>
-
-      {filterType && (
-        <div style={{ ...cardStyle, marginBottom: 14, background: "#f0f9ff", padding: "12px 16px", fontSize: 13 }}>
-          <strong>{"Kategori: " + filterType}</strong>{" — "}
-          {Object.entries(filtered.reduce(function(acc, a) { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {}))
-            .map(function(entry) { return entry[0] + ": " + entry[1]; }).join("  |  ")}
-        </div>
-      )}
 
       {canEdit && showForm && (
         <div style={{ ...cardStyle, marginBottom: 14, background: "#f0fdf4", border: "1.5px solid #86efac" }}>
@@ -523,6 +596,11 @@ function AssetsPage({ userRole }) {
               <datalist id="type-dl">{types.map(function(t) { return <option key={t} value={t} />; })}</datalist>
             </div>
             <div>
+              <label style={labelStyle}>Sub-Kategori</label>
+              <input style={{ ...inputStyle, width: 140 }} value={form.sub_category}
+                onChange={function(e) { setForm({ ...form, sub_category: e.target.value }); }} placeholder="cth: Kursi Roda" required />
+            </div>
+            <div>
               <label style={labelStyle}>Ruangan</label>
               <input style={{ ...inputStyle, width: 130 }} list="ward-dl" value={form.current_ward}
                 onChange={function(e) { setForm({ ...form, current_ward: e.target.value }); }} placeholder="cth: ICU" required />
@@ -534,63 +612,86 @@ function AssetsPage({ userRole }) {
       )}
 
       {loading ? <p style={{ color: "#64748b", padding: 20 }}>Memuat data...</p> : (
-        <div style={cardStyle}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  {["ID", "Nama", "Kategori", "Ruangan", "Status", canEdit ? "Aksi" : null]
-                    .filter(Boolean).map(function(h) { return <th key={h} style={thStyle}>{h}</th>; })}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr><td colSpan={6} style={{ ...tdStyle, textAlign: "center", color: "#94a3b8" }}>Tidak ada data</td></tr>
-                )}
-                {filtered.map(function(a) { return (
-                  <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>{"#" + a.id}</td>
-                    <td style={tdStyle}><strong>{a.name}</strong></td>
-                    <td style={tdStyle}>{a.type}</td>
-                    <td style={tdStyle}>{a.current_ward}</td>
-                    <td style={tdStyle}>
-                      {canEdit && editStatus.id === a.id ? (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <select style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: 145 }}
-                            value={editStatus.value}
-                            onChange={function(e) { setEditStatus({ id: a.id, value: e.target.value }); }}>
-                            <option value="">-- Pilih Status --</option>
-                            {MANUAL_STATUSES.map(function(s) { return <option key={s}>{s}</option>; })}
-                          </select>
-                          <button style={{ ...btnSmall, background: "#16a34a", color: "white" }}
-                            onClick={function() { handleStatusSave(a.id, a.current_ward); }}>✓</button>
-                          <button style={btnSmall} onClick={function() { setEditStatus({ id: null, value: "" }); }}>✕</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {Object.keys(grouped).map(function(catName) {
+            return (
+              <div key={catName} style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                <div style={{ background: "#f8fafc", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
+                  <h3 style={{ margin: 0, color: "#0f172a", fontSize: 16 }}>{"Kategori: " + catName}</h3>
+                </div>
+                
+                <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+                  {Object.keys(grouped[catName]).map(function(subName) {
+                    var items = grouped[catName][subName];
+                    return (
+                      <div key={subName} style={{ border: "1px solid #cbd5e1", borderRadius: 6, overflow: "hidden" }}>
+                        <div style={{ background: "#f1f5f9", padding: "8px 12px", borderBottom: "1px solid #cbd5e1" }}>
+                          <h4 style={{ margin: 0, color: "#334155", fontSize: 14 }}>{"Sub-Kategori: " + subName} <span style={{fontSize: 12, fontWeight: "normal", color: "#64748b"}}>{"(" + items.length + " item)"}</span></h4>
                         </div>
-                      ) : <Badge status={a.status} />}
-                    </td>
-                    {canEdit && (
-                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                          <button style={{ ...btnSmall, background: "#f3e8ff", color: "#7e22ce" }}
-                            onClick={function() { openDetail(a); }}>📄 Detail</button>
-                          <button style={{ ...btnSmall, background: "#dbeafe", color: "#1e40af" }}
-                            onClick={function() { openQR(a.qr_hash, a.name); }}>🖨 QR</button>
-                          {!["In Transit", "In Use"].includes(a.status) && (
-                            <button style={{ ...btnSmall, background: "#fef3c7", color: "#92400e" }}
-                              onClick={function() { setEditStatus({ id: a.id, value: a.status }); }}>✎ Status</button>
-                          )}
-                          {["Available", "Out of Stock", "Sterilization"].includes(a.status) && (
-                            <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
-                              onClick={function() { handleDelete(a.id, a.name); }}>🗑</button>
-                          )}
+                        
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+                            <thead>
+                              <tr style={{ background: "white", borderBottom: "1px solid #e2e8f0" }}>
+                                <th style={{ padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>ID</th>
+                                <th style={{ padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>Nama Item</th>
+                                <th style={{ padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>Ruangan</th>
+                                <th style={{ padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>Status</th>
+                                {canEdit ? <th style={{ padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>Aksi (QR)</th> : null}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map(function(a) {
+                                return (
+                                  <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "10px 12px" }}>{"#" + a.id}</td>
+                                    <td style={{ padding: "10px 12px" }}><strong>{a.name}</strong></td>
+                                    <td style={{ padding: "10px 12px" }}>{a.current_ward}</td>
+                                    <td style={{ padding: "10px 12px" }}>
+                                      {canEdit && editStatus.id === a.id ? (
+                                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                          <select style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: 130 }}
+                                            value={editStatus.value}
+                                            onChange={function(e) { setEditStatus({ id: a.id, value: e.target.value }); }}>
+                                            <option value="">-- Pilih --</option>
+                                            {MANUAL_STATUSES.map(function(s) { return <option key={s}>{s}</option>; })}
+                                          </select>
+                                          <button style={{ ...btnSmall, background: "#16a34a", color: "white" }}
+                                            onClick={function() { handleStatusSave(a.id, a.current_ward); }}>✓</button>
+                                          <button style={btnSmall} onClick={function() { setEditStatus({ id: null, value: "" }); }}>✕</button>
+                                        </div>
+                                      ) : <Badge status={a.status} />}
+                                    </td>
+                                    {canEdit ? (
+                                      <td style={{ padding: "10px 12px" }}>
+                                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                          <button style={{ ...btnSmall, background: "#dbeafe", color: "#1e40af" }}
+                                            onClick={function() { openQR(a.qr_hash, a.name); }}>🖨 QR</button>
+                                          <button style={{ ...btnSmall, background: "#f3e8ff", color: "#7e22ce" }}
+                                            onClick={function() { openDetail(a); }}>📄 Detail</button>
+                                          <button style={{ ...btnSmall, background: "#fef3c7", color: "#92400e" }}
+                                            onClick={function() { setEditStatus({ id: a.id, value: a.status }); }}>✎ Status</button>
+                                          <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
+                                            onClick={function() { handleDelete(a.id, a.name); }}>🗑</button>
+                                        </div>
+                                      </td>
+                                    ) : null}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      </td>
-                    )}
-                  </tr>
-                );})}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          {Object.keys(grouped).length === 0 && (
+            <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", background: "white", borderRadius: 8 }}>Tidak ada data aset</div>
+          )}
         </div>
       )}
 
@@ -624,7 +725,7 @@ function AssetsPage({ userRole }) {
 
             <div style={{ background: "#f8fafc", padding: "12px 16px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #e2e8f0" }}>
               <div style={{ marginBottom: 4 }}><strong>ID Aset:</strong> {"#" + detailModal.id}</div>
-              <div style={{ marginBottom: 4 }}><strong>Kategori:</strong> {detailModal.type}</div>
+              <div style={{ marginBottom: 4 }}><strong>Kategori:</strong> {detailModal.type} {"(Sub: " + (detailModal.sub_category || "-") + ")"}</div>
               <div style={{ marginBottom: 4 }}><strong>Lokasi Terakhir:</strong> {detailModal.current_ward}</div>
               <div><strong>Umur Aset:</strong> {calculateAge(detailModal.created_at)}</div>
             </div>
@@ -689,80 +790,119 @@ function AssetsPage({ userRole }) {
 }
 // ─── WARDS PAGE ───────────────────────────────────────────────────────────────
 function WardsPage() {
-  const [wards, setWards]   = useState([]);
-  const [assets, setAssets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [newWard, setNewWard] = useState("");
-  const [saving, setSaving]   = useState(false);
+  var [wards, setWards]   = useState([]);
+  var [assets, setAssets] = useState([]);
+  var [loading, setLoading] = useState(true);
+  var [newWard, setNewWard] = useState("");
+  var [saving, setSaving]   = useState(false);
+  var [editWard, setEditWard] = useState({ id: null, name: "" });
 
-  const load = useCallback(() => {
+  var canEdit = true;
+
+  var load = useCallback(function() {
     setLoading(true);
-    Promise.all([api.get("/wards"), api.get("/assets")]).then(([w, a]) => {
-      setWards(w.data || []);
-      setAssets(a.data || []);
+    Promise.all([api.get("/wards"), api.get("/assets")]).then(function(res) {
+      setWards(res[0].data || []);
+      setAssets(res[1].data || []);
       setLoading(false);
     });
   }, []);
-  useEffect(() => { load(); }, [load]);
 
-  const handleAddWard = async (e) => {
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(function() { load(); }, [load]);
+
+  var handleAddWard = async function(e) {
     e.preventDefault(); setSaving(true);
-    const res = await api.post("/wards", { ward_name: newWard });
+    var res = await api.post("/wards", { ward_name: newWard });
     setSaving(false);
     if (res.ok) { setNewWard(""); load(); }
-    else { const d = await res.json(); alert("Gagal: " + d.error); }
+    else { var d = await res.json(); alert("Gagal: " + d.error); }
   };
 
-  const handleDeleteWard = async (id, name) => {
-    if (!confirm(`Hapus ruangan "${name}"?`)) return;
-    const { ok, data } = await api.del(`/wards/${id}`);
-    if (ok) load(); else alert("Gagal: " + data.error);
+  var handleDeleteWard = async function(id, name) {
+    if (!confirm("Hapus ruangan " + name + "?")) return;
+    var res = await api.del("/wards/" + id);
+    if (res.ok) load(); else alert("Gagal: " + res.data.error);
   };
 
-  const getWardAssets = (name) => assets.filter((a) => a.current_ward === name);
+  var handleSaveEdit = async function(id) {
+    if (!editWard.name) return;
+    var res = await api.put("/wards/" + id, { ward_name: editWard.name });
+    if (res.ok) {
+      setEditWard({ id: null, name: "" });
+      load();
+    } else {
+      alert("Gagal update nama ruangan");
+    }
+  };
+
+  var getWardAssets = function(name) {
+    return assets.filter(function(a) { return a.current_ward === name; });
+  };
 
   if (loading) return <PageShell title="Manajemen Ruangan"><p style={{ color: "#64748b" }}>Memuat...</p></PageShell>;
 
   return (
     <PageShell title="Manajemen Ruangan / Lokasi">
-      <form onSubmit={handleAddWard} style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "flex-end" }}>
-        <div>
-          <label style={labelStyle}>Tambah Ruangan Baru</label>
-          <input style={{ ...inputStyle, width: 200 }} value={newWard}
-            onChange={(e) => setNewWard(e.target.value)} placeholder="Nama ruangan" required />
-        </div>
-        <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "..." : "+ Tambah"}</button>
-      </form>
+      {canEdit && (
+        <form onSubmit={handleAddWard} style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "flex-end" }}>
+          <div>
+            <label style={labelStyle}>Tambah Ruangan Baru</label>
+            <input style={{ ...inputStyle, width: 200 }} value={newWard}
+              onChange={function(e) { setNewWard(e.target.value); }} placeholder="Nama ruangan" required />
+          </div>
+          <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "..." : "+ Tambah"}</button>
+        </form>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-        {wards.map((w) => {
-          const wa = getWardAssets(w.ward_name);
-          const available = wa.filter((a) => a.status === "Available").length;
-          const inUse     = wa.filter((a) => a.status === "In Use").length;
-          const steril    = wa.filter((a) => a.status === "Sterilization").length;
+        {wards.map(function(w) {
+          var wa = getWardAssets(w.ward_name);
+          var available = wa.filter(function(a) { return a.status === "Available"; }).length;
+          var inUse     = wa.filter(function(a) { return a.status === "In Use"; }).length;
+          var steril    = wa.filter(function(a) { return a.status === "Sterilization"; }).length;
+          
           return (
             <div key={w.id} style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <h3 style={{ margin: 0, fontSize: 15 }}>🏥 {w.ward_name}</h3>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ background: "#dbeafe", color: "#1e40af", borderRadius: 99, padding: "2px 9px", fontSize: 12, fontWeight: 600 }}>{wa.length} aset</span>
-                  <button style={{ ...btnSmall, padding: "2px 8px", background: "#fee2e2", color: "#991b1b" }}
-                    onClick={() => handleDeleteWard(w.id, w.ward_name)}>🗑</button>
-                </div>
+                {editWard.id === w.id ? (
+                  <div style={{ display: "flex", gap: 6, width: "100%" }}>
+                    <input style={{ ...inputStyle, padding: "4px 8px", fontSize: 13, flex: 1 }} 
+                      value={editWard.name} onChange={function(e) { setEditWard({ id: w.id, name: e.target.value }); }} />
+                    <button style={{ ...btnSmall, background: "#16a34a", color: "white" }} 
+                      onClick={function() { handleSaveEdit(w.id); }}>✓</button>
+                    <button style={btnSmall} 
+                      onClick={function() { setEditWard({ id: null, name: "" }); }}>✕</button>
+                  </div>
+                ) : (
+                  <>
+                    <h3 style={{ margin: 0, fontSize: 15 }}>{"🏥 " + w.ward_name}</h3>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ background: "#dbeafe", color: "#1e40af", borderRadius: 99, padding: "2px 9px", fontSize: 12, fontWeight: 600 }}>{wa.length + " aset"}</span>
+                      {canEdit && (
+                        <>
+                          <button style={{ ...btnSmall, padding: "2px 8px", background: "#fef3c7", color: "#92400e" }}
+                            onClick={function() { setEditWard({ id: w.id, name: w.ward_name }); }}>✎</button>
+                          <button style={{ ...btnSmall, padding: "2px 8px", background: "#fee2e2", color: "#991b1b" }}
+                            onClick={function() { handleDeleteWard(w.id, w.ward_name); }}>🗑</button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                <span style={{ background: "#d1fae5", color: "#065f46", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>✓ {available} tersedia</span>
-                <span style={{ background: "#fef3c7", color: "#92400e", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>◉ {inUse} digunakan</span>
-                {steril > 0 && <span style={{ background: "#ede9fe", color: "#5b21b6", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>🧪 {steril} steril</span>}
+                <span style={{ background: "#d1fae5", color: "#065f46", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>{"✓ " + available + " tersedia"}</span>
+                <span style={{ background: "#fef3c7", color: "#92400e", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>{"◉ " + inUse + " digunakan"}</span>
+                {steril > 0 && <span style={{ background: "#ede9fe", color: "#5b21b6", borderRadius: 99, padding: "2px 9px", fontSize: 11 }}>{"🧪 " + steril + " steril"}</span>}
               </div>
               {wa.length > 0 && (
-                <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 8 }}>
-                  {wa.slice(0, 4).map((a) => (
-                    <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
+                <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 8, maxHeight: 180, overflowY: "auto", paddingRight: 4 }}>
+                  {wa.map(function(a) { return (
+                    <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "6px 0", borderBottom: "1px solid #f8fafc" }}>
                       <span>{a.name}</span><Badge status={a.status} />
                     </div>
-                  ))}
-                  {wa.length > 4 && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>+{wa.length - 4} lainnya</div>}
+                  );})}
                 </div>
               )}
             </div>
@@ -903,83 +1043,86 @@ function TransferPage({ userRole }) {
 }
 
 // ─── SCANNER PAGE ─────────────────────────────────────────────────────────────
+function ScannerPage() {
+  var [manualHash, setManualHash] = useState("");
+  var [result, setResult]         = useState(null);
+  var [transfer, setTransfer]     = useState(null);
+  var [maintenanceLog, setMaintenanceLog] = useState(null);
+  var [verifying, setVerifying]   = useState(false);
+  var [scanning, setScanning]     = useState(false);
+  var [libReady, setLibReady]     = useState(!!window.Html5Qrcode);
+  var [reportForm, setReportForm] = useState(false);
+  var [reportDesc, setReportDesc] = useState("");
+  var [reportSaving, setReportSaving] = useState(false);
+  var [actionMsg, setActionMsg]   = useState(null);
+  var html5Ref = useRef(null);
 
-function ScannerPage({ userRole }) {
-  const [manualHash, setManualHash] = useState("");
-  const [result, setResult]         = useState(null);
-  const [transfer, setTransfer]     = useState(null);
-  const [verifying, setVerifying]   = useState(false);
-  const [scanning, setScanning]     = useState(false);
-  const [libReady, setLibReady]     = useState(!!window.Html5Qrcode);
-  const [reportForm, setReportForm] = useState(false);
-  const [reportDesc, setReportDesc] = useState("");
-  const [reportSaving, setReportSaving] = useState(false);
-  const [actionMsg, setActionMsg]   = useState(null);
-  const html5Ref = useRef(null);
-
-  useEffect(() => {
-    if (window.Html5Qrcode) { setLibReady(true); return; }
-    const script = document.createElement("script");
+  useEffect(function() {
+    if (window.Html5Qrcode) return;
+    var script = document.createElement("script");
     script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
-    script.onload = () => setLibReady(true);
+    script.onload = function() { setLibReady(true); };
     document.head.appendChild(script);
   }, []);
 
-  const reset = () => {
-    setResult(null); setTransfer(null); setManualHash("");
+  var reset = function() {
+    setResult(null); setTransfer(null); setMaintenanceLog(null); setManualHash("");
     setActionMsg(null); setReportForm(false); setReportDesc("");
   };
 
-  const verify = async (hash) => {
-    if (!hash?.trim()) return;
-    setVerifying(true); setResult(null); setTransfer(null); setActionMsg(null);
+  var verify = async function(hash) {
+    if (!hash || !hash.trim()) return;
+    setVerifying(true); setResult(null); setTransfer(null); setMaintenanceLog(null); setActionMsg(null);
     try {
-      const res = await api.get(`/assets/qr/${hash.trim()}`);
+      var res = await api.get("/assets/qr/" + hash.trim());
       if (res.data) {
         setResult(res.data);
         if (res.data.status === "In Transit") {
-          const t = await api.get(`/transfers/active/${res.data.id}`);
+          var t = await api.get("/transfers/active/" + res.data.id);
           setTransfer(t.data || null);
         }
+        var m = await api.get("/maintenance/asset/" + res.data.id);
+        setMaintenanceLog(m.data || []);
       } else {
         setResult({ __error: true, msg: res.error || "Aset tidak ditemukan" });
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       setResult({ __error: true, msg: "Gagal terhubung ke server" });
     }
     setVerifying(false);
   };
 
-  const startCamera = () => {
+  var startCamera = function() {
     if (!libReady) { alert("Scanner sedang dimuat, coba lagi."); return; }
     setScanning(true); reset();
-    setTimeout(() => {
+    setTimeout(function() {
       try {
         html5Ref.current = new window.Html5Qrcode("qr-reader-div");
         html5Ref.current.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 240, height: 240 } },
-          (decoded) => {
-            html5Ref.current.stop().catch(() => {});
+          function(decoded) {
+            html5Ref.current.stop().catch(function(){});
             setScanning(false);
             setManualHash(decoded);
             verify(decoded);
           }
-        ).catch((err) => { setScanning(false); alert("Kamera tidak tersedia: " + err); });
+        ).catch(function(err) { setScanning(false); alert("Kamera tidak tersedia: " + err); });
       } catch (err) { setScanning(false); console.error(err); }
     }, 150);
   };
 
-  const stopCamera = () => {
-    if (html5Ref.current) html5Ref.current.stop().catch(() => {});
+  var stopCamera = function() {
+    if (html5Ref.current) html5Ref.current.stop().catch(function(){});
     setScanning(false);
   };
 
-  const confirmReceive = async () => {
+  var confirmReceive = async function() {
     if (!transfer) return;
-    const res = await api.put(`/transfers/receive/${transfer.id}`, {});
+    var res = await api.put("/transfers/receive/" + transfer.id, {});
     if (res.ok) {
-      setActionMsg({ type: "success", text: `✅ Aset berhasil diterima dan sekarang 'In Use' di ${transfer.to_ward}.` });
+      setActionMsg({ type: "success", text: "✅ Aset berhasil diterima dan sekarang 'In Use' di " + transfer.to_ward + "." });
       setResult({ ...result, status: "In Use", current_ward: transfer.to_ward });
       setTransfer(null);
     } else {
@@ -987,15 +1130,15 @@ function ScannerPage({ userRole }) {
     }
   };
 
-  const denyReceive = () => {
+  var denyReceive = function() {
     setActionMsg({ type: "warn", text: "⚠ Jangan terima aset ini. Instruksikan porter untuk mengembalikan ke ruangan asal." });
     setTransfer(null);
   };
 
-  const submitReport = async () => {
+  var submitReport = async function() {
     if (!reportDesc.trim() || !result) return;
     setReportSaving(true);
-    const res = await api.post("/maintenance", {
+    var res = await api.post("/maintenance", {
       asset_id: result.id, asset_name: result.name, type: result.type,
       report_date: new Date().toISOString().split("T")[0],
       description: reportDesc, reporter: "Scanner",
@@ -1004,22 +1147,25 @@ function ScannerPage({ userRole }) {
     if (res.ok) {
       setActionMsg({ type: "success", text: "📋 Laporan kerusakan berhasil dikirim." });
       setReportForm(false); setReportDesc("");
+      var m = await api.get("/maintenance/asset/" + result.id);
+      setMaintenanceLog(m.data || []);
     } else {
-      const d = await res.json();
+      var d = await res.json();
       setActionMsg({ type: "error", text: "Gagal: " + d.error });
     }
   };
 
-  const msgStyle = (type) => ({
-    marginTop: 12, padding: "10px 14px", borderRadius: 8, fontSize: 13,
-    background: type === "success" ? "#d1fae5" : type === "warn" ? "#fffbeb" : "#fee2e2",
-    color:      type === "success" ? "#065f46" : type === "warn" ? "#92400e" : "#991b1b",
-  });
+  var msgStyle = function(type) {
+    return {
+      marginTop: 12, padding: "10px 14px", borderRadius: 8, fontSize: 13,
+      background: type === "success" ? "#d1fae5" : type === "warn" ? "#fffbeb" : "#fee2e2",
+      color:      type === "success" ? "#065f46" : type === "warn" ? "#92400e" : "#991b1b",
+    };
+  };
 
   return (
     <PageShell title="Scanner QR Aset">
       <div style={{ maxWidth: 520 }}>
-        {/* Camera */}
         <div style={cardStyle}>
           <h3 style={sectionTitle}>📷 Scan dengan Kamera</h3>
           {scanning && <div id="qr-reader-div" style={{ width: "100%", marginBottom: 12, borderRadius: 10, overflow: "hidden" }} />}
@@ -1033,25 +1179,23 @@ function ScannerPage({ userRole }) {
           </div>
         </div>
 
-        {/* Manual input */}
         <div style={{ ...cardStyle, marginTop: 14 }}>
           <h3 style={sectionTitle}>🔍 Verifikasi Manual</h3>
           <div style={{ display: "flex", gap: 10 }}>
             <input style={{ ...inputStyle, flex: 1 }}
               placeholder="Ketik QR hash, cth: qr_hash_12345"
-              value={manualHash} onChange={(e) => setManualHash(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && verify(manualHash)} />
-            <button style={btnPrimary} onClick={() => verify(manualHash)} disabled={verifying}>
+              value={manualHash} onChange={function(e) { setManualHash(e.target.value); }}
+              onKeyDown={function(e) { if(e.key === "Enter") verify(manualHash); }} />
+            <button style={btnPrimary} onClick={function() { verify(manualHash); }} disabled={verifying}>
               {verifying ? "..." : "Periksa"}
             </button>
           </div>
         </div>
 
-        {/* Result */}
         {result && (
           <div style={{ ...cardStyle, marginTop: 14, borderTop: result.__error ? "4px solid #ef4444" : "4px solid #22c55e" }}>
             {result.__error ? (
-              <p style={{ color: "#dc2626", margin: 0 }}>❌ {result.msg}</p>
+              <p style={{ color: "#dc2626", margin: 0 }}>{"❌ " + result.msg}</p>
             ) : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -1059,7 +1203,7 @@ function ScannerPage({ userRole }) {
                   <Badge status={result.status} />
                 </div>
                 <div style={{ fontSize: 13, color: "#475569", lineHeight: 2 }}>
-                  <div>📦 <strong>ID:</strong> #{result.id}</div>
+                  <div>📦 <strong>ID:</strong> {"#" + result.id}</div>
                   <div>🏷 <strong>Kategori:</strong> {result.type}</div>
                   <div>📍 <strong>Lokasi Saat Ini:</strong> {result.current_ward}</div>
                 </div>
@@ -1083,23 +1227,63 @@ function ScannerPage({ userRole }) {
                   </div>
                 )}
 
+                {maintenanceLog && (
+                  <div style={{ marginTop: 16, borderTop: "1px solid #e2e8f0", paddingTop: 12 }}>
+                    <h4 style={{ margin: "0 0 10px", fontSize: 13, color: "#0f172a" }}>🛠 Riwayat Pemeliharaan</h4>
+                    {maintenanceLog.length === 0 ? (
+                      <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>Belum ada riwayat kerusakan.</p>
+                    ) : (
+                      <div style={{ maxHeight: 250, overflowY: "auto", paddingRight: 5 }}>
+                        {maintenanceLog.map(function(m) {
+                          return (
+                            <div key={m.id} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: 6, marginBottom: 8, fontSize: 12, borderLeft: m.status === "Selesai" ? "3px solid #22c55e" : "3px solid #f59e0b" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                <strong>{m.report_date}</strong>
+                                <span style={{ color: m.status === "Selesai" ? "#16a34a" : "#d97706", fontWeight: 600 }}>{m.status}</span>
+                              </div>
+                              <div style={{ color: "#475569" }}>{"Kendala: " + m.description}</div>
+                              
+                              {m.start_date && m.status !== "Selesai" && (
+                                <div style={{ background: "#e0f2fe", padding: "6px 8px", borderRadius: 4, marginTop: 8, border: "1px solid #bae6fd" }}>
+                                  <div style={{ color: "#0369a1", fontWeight: 600, marginBottom: 2 }}>Informasi Tindak Lanjut:</div>
+                                  <div style={{ color: "#0c4a6e" }}>{"Mulai Eksekusi: " + m.start_date}</div>
+                                  <div style={{ color: "#0c4a6e" }}>{"Estimasi Selesai: " + (m.estimated_end_date ? m.estimated_end_date : "-")}</div>
+                                </div>
+                              )}
+
+                              {m.status === "Selesai" && m.action_date && (
+                                <div style={{ background: "#f0fdf4", padding: "6px 8px", borderRadius: 4, marginTop: 8, border: "1px solid #bbf7d0" }}>
+                                  <div style={{ color: "#166534", fontWeight: 600, marginBottom: 2 }}>{"Tindakan Selesai (" + m.action_date + "):"}</div>
+                                  <div style={{ color: "#14532d" }}>{"Durasi: " + m.duration_days + " hari | Biaya: Rp " + m.cost}</div>
+                                  <div style={{ color: "#14532d", marginTop: 2 }}>{"Catatan: " + (m.action_notes ? m.action_notes : "-")}</div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {actionMsg && <div style={msgStyle(actionMsg.type)}>{actionMsg.text}</div>}
 
                 {!reportForm && !actionMsg && (
                   <button style={{ ...btnSmall, marginTop: 12, background: "#fee2e2", color: "#991b1b", width: "100%", padding: "8px", textAlign: "center" }}
-                    onClick={() => setReportForm(true)}>⚠ Laporkan Kerusakan</button>
+                    onClick={function() { setReportForm(true); }}>⚠ Laporkan Kerusakan</button>
                 )}
+                
                 {reportForm && (
                   <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Deskripsi Kerusakan</label>
+                        <label style={labelStyle}>Deskripsi Kerusakan</label>
                     <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }}
-                      value={reportDesc} onChange={(e) => setReportDesc(e.target.value)}
+                      value={reportDesc} onChange={function(e) { setReportDesc(e.target.value); }}
                       placeholder="Jelaskan kerusakan yang terlihat..." />
                     <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                       <button style={{ ...btnPrimary, background: "#dc2626", flex: 1 }} onClick={submitReport} disabled={reportSaving}>
                         {reportSaving ? "..." : "Kirim Laporan"}
                       </button>
-                      <button style={{ ...btnPrimary, background: "#64748b" }} onClick={() => setReportForm(false)}>Batal</button>
+                      <button style={{ ...btnPrimary, background: "#64748b" }} onClick={function() { setReportForm(false); }}>Batal</button>
                     </div>
                   </div>
                 )}
@@ -1113,182 +1297,188 @@ function ScannerPage({ userRole }) {
     </PageShell>
   );
 }
-
 // ─── MAINTENANCE PAGE ─────────────────────────────────────────────────────────
-function MaintenancePage({ user }) {
-  const [reports, setReports]   = useState([]);
-  const [assets, setAssets]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [actionModal, setActionModal] = useState(null);
-  const [filterStatus, setFilterStatus] = useState("");
-  const [form, setForm] = useState({ asset_id: "", report_date: today(), description: "", reporter: user?.username || "" });
-  const [action, setAction] = useState({ action_date: today(), vendor: "", cost: "", duration_days: "", notes: "", status: "Diperbaiki" });
-  const canFollowUp = ["admin", "staff"].includes(user?.role);
+function MaintenancePage() {
+  var [reports, setReports] = useState([]);
+  var [assets, setAssets] = useState([]);
+  var [filterStatus, setFilterStatus] = useState("");
+  var [modal, setModal] = useState(null);
+  var [form, setForm] = useState({
+    status: "", start_date: "", est_date: "", vendor: "",
+    cost: "", duration: "", notes: ""
+  });
 
-  const load = useCallback(() => {
-    setLoading(true);
-    Promise.all([api.get("/maintenance"), api.get("/assets")])
-      .then(([m, a]) => { setReports(m.data || []); setAssets(a.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+  var load = useCallback(function() {
+    Promise.all([api.get("/maintenance"), api.get("/assets")]).then(function(res) {
+      setReports(res[0].data || []);
+      setAssets(res[1].data || []);
+    });
   }, []);
-  useEffect(() => { load(); }, [load]);
 
-  const handleReport = async (e) => {
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(function() { load(); }, [load]);
+
+  var handleSave = async function(e) {
     e.preventDefault();
-    const a = assets.find((x) => String(x.id) === String(form.asset_id));
-    const res = await api.post("/maintenance", { ...form, asset_name: a?.name || "", type: a?.type || "" });
-    if (res.ok) {
-      if (a) await api.put(`/assets/${a.id}/location`, { current_ward: a.current_ward, status: "Maintenance" });
-      setShowForm(false);
-      setForm({ asset_id: "", report_date: today(), description: "", reporter: user?.username || "" });
-      load();
-    } else { const d = await res.json(); alert("Gagal: " + d.error); }
+    var payload = {
+      status: form.status,
+      start_date: form.start_date,
+      est_date: form.est_date,
+      vendor: form.vendor,
+      cost: form.status === "Selesai" ? form.cost : null,
+      duration: form.status === "Selesai" ? form.duration : null,
+      action_notes: form.status === "Selesai" ? form.notes : null
+    };
+    
+    // Sesuaikan endpoint ini dengan backend kamu, biasanya /maintenance/:id atau /maintenance/:id/action
+    var res = await api.put("/maintenance/" + modal.id, payload); 
+    if (res.ok) { 
+      setModal(null); 
+      load(); 
+    } else { 
+      alert("Gagal menyimpan tindak lanjut."); 
+    }
   };
 
-  const handleAction = async (e) => {
-    e.preventDefault();
-    const res = await api.post(`/maintenance/${actionModal}/action`, action);
-    if (res.ok) { setActionModal(null); load(); }
-    else { const d = await res.json(); alert("Gagal: " + d.error); }
-  };
-
-  const filtered = filterStatus ? reports.filter((r) => r.status === filterStatus) : reports;
+  var grouped = {};
+  for (var i = 0; i < reports.length; i++) {
+    var r = reports[i];
+    if (filterStatus && r.status !== filterStatus) continue;
+    
+    var assetName = "Aset #" + r.asset_id;
+    for (var j = 0; j < assets.length; j++) {
+      if (String(assets[j].id) === String(r.asset_id)) {
+        assetName = assets[j].name + " (#" + assets[j].id + ")";
+        break;
+      }
+    }
+    if (!grouped[assetName]) grouped[assetName] = [];
+    grouped[assetName].push(r);
+  }
 
   return (
     <PageShell title="Laporan & Pemeliharaan Aset">
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <select style={{ ...inputStyle, width: 200 }} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <select style={{ ...inputStyle, width: 200 }} value={filterStatus} onChange={function(e) { setFilterStatus(e.target.value); }}>
           <option value="">Semua Status Laporan</option>
-          {["Dilaporkan", "Diperbaiki", "Diganti", "Selesai"].map((s) => <option key={s}>{s}</option>)}
+          <option value="Dilaporkan">Dilaporkan</option>
+          <option value="Diperbaiki">Diperbaiki</option>
+          <option value="Selesai">Selesai</option>
         </select>
-        <button style={btnPrimary} onClick={() => setShowForm(!showForm)}>
-          {showForm ? "✕ Tutup" : "+ Laporkan Kerusakan"}
-        </button>
+        <button style={btnPrimary}>+ Laporkan Kerusakan</button>
       </div>
 
-      {showForm && (
-        <div style={{ ...cardStyle, marginBottom: 16, background: "#fef2f2", border: "1.5px solid #fca5a5" }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 14, color: "#991b1b" }}>Laporan Kerusakan Baru</h3>
-          <form onSubmit={handleReport} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div>
-              <label style={labelStyle}>Aset</label>
-              <select style={{ ...inputStyle, width: 240 }} value={form.asset_id}
-                onChange={(e) => setForm({ ...form, asset_id: e.target.value })} required>
-                <option value="">-- Pilih Aset --</option>
-                {assets.map((a) => <option key={a.id} value={a.id}>{a.name} (#{a.id})</option>)}
-              </select>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {Object.keys(grouped).map(function(assetName) {
+          return (
+            <div key={assetName} style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+              <div style={{ background: "#f8fafc", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
+                <h3 style={{ margin: 0, fontSize: 15, color: "#0f172a" }}>{"📦 " + assetName}</h3>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ background: "white", borderBottom: "1px solid #e2e8f0" }}>
+                      <th style={{ padding: "10px 16px", color: "#64748b" }}>ID Laporan</th>
+                      <th style={{ padding: "10px 16px", color: "#64748b" }}>Tanggal</th>
+                      <th style={{ padding: "10px 16px", color: "#64748b" }}>Deskripsi</th>
+                      <th style={{ padding: "10px 16px", color: "#64748b" }}>Status</th>
+                      <th style={{ padding: "10px 16px", color: "#64748b" }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped[assetName].map(function(r) { return (
+                      <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "10px 16px" }}>{"#" + r.id}</td>
+                        <td style={{ padding: "10px 16px" }}>{r.report_date}</td>
+                        <td style={{ padding: "10px 16px" }}>{r.description}</td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <span style={{ fontWeight: 600, color: r.status === "Selesai" ? "#16a34a" : r.status === "Diperbaiki" ? "#ca8a04" : "#dc2626" }}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <button style={{ ...btnSmall, background: "#dbeafe", color: "#1e40af" }} onClick={function() { 
+                            setModal(r);
+                            setForm({
+                              status: r.status === "Dilaporkan" ? "Diperbaiki" : r.status,
+                              start_date: r.start_date || "",
+                              est_date: r.est_date || "",
+                              vendor: r.vendor || "",
+                              cost: r.cost || "",
+                              duration: r.duration || "",
+                              notes: r.action_notes || ""
+                            });
+                          }}>🔧 Tindak Lanjut</button>
+                        </td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div>
-              <label style={labelStyle}>Tanggal</label>
-              <input style={{ ...inputStyle, width: 155 }} type="date" value={form.report_date}
-                onChange={(e) => setForm({ ...form, report_date: e.target.value })} required />
-            </div>
-            <div>
-              <label style={labelStyle}>Pelapor</label>
-              <input style={{ ...inputStyle, width: 140 }} value={form.reporter}
-                onChange={(e) => setForm({ ...form, reporter: e.target.value })} required />
-            </div>
-            <div style={{ flex: "1 1 100%" }}>
-              <label style={labelStyle}>Deskripsi Kerusakan</label>
-              <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical", width: "100%", boxSizing: "border-box" }}
-                value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Jelaskan kerusakan secara detail..." required />
-            </div>
-            <button type="submit" style={{ ...btnPrimary, background: "#dc2626" }}>📋 Kirim Laporan</button>
-          </form>
-        </div>
-      )}
+          );
+        })}
+      </div>
 
-      {actionModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-          onClick={() => setActionModal(null)}>
-          <div style={{ background: "white", borderRadius: 16, padding: 28, width: 460, maxWidth: "95vw" }}
-            onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 16px" }}>Tindak Lanjut Laporan #{actionModal}</h3>
-            <form onSubmit={handleAction} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", gap: 10 }}>
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={function() { setModal(null); }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 24, width: 500, maxWidth: "90vw" }} onClick={function(e) { e.stopPropagation(); }}>
+            <h3 style={{ margin: "0 0 20px" }}>{"Tindak Lanjut Laporan #" + modal.id}</h3>
+            
+            <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", gap: 16 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Tanggal Tindakan</label>
-                  <input style={inputStyle} type="date" value={action.action_date}
-                    onChange={(e) => setAction({ ...action, action_date: e.target.value })} required />
+                  <label style={labelStyle}>Mulai Eksekusi</label>
+                  <input type="date" style={inputStyle} value={form.start_date} onChange={function(e) { setForm({...form, start_date: e.target.value}); }} required />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Status Baru</label>
-                  <select style={inputStyle} value={action.status}
-                    onChange={(e) => setAction({ ...action, status: e.target.value })}>
-                    {["Diperbaiki", "Diganti", "Selesai"].map((s) => <option key={s}>{s}</option>)}
+                  <label style={labelStyle}>Estimasi Selesai</label>
+                  <input type="date" style={inputStyle} value={form.est_date} onChange={function(e) { setForm({...form, est_date: e.target.value}); }} required />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Status Saat Ini</label>
+                  <select style={inputStyle} value={form.status} onChange={function(e) { setForm({...form, status: e.target.value}); }}>
+                    <option value="Diperbaiki">Diperbaiki</option>
+                    <option value="Selesai">Selesai</option>
                   </select>
                 </div>
-              </div>
-              <div>
-                <label style={labelStyle}>Vendor / Teknisi</label>
-                <input style={inputStyle} value={action.vendor}
-                  onChange={(e) => setAction({ ...action, vendor: e.target.value })} placeholder="Nama vendor" />
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Biaya (Rp)</label>
-                  <input style={inputStyle} type="number" value={action.cost}
-                    onChange={(e) => setAction({ ...action, cost: e.target.value })} placeholder="0" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Durasi (Hari)</label>
-                  <input style={inputStyle} type="number" value={action.duration_days}
-                    onChange={(e) => setAction({ ...action, duration_days: e.target.value })} placeholder="0" />
+                  <label style={labelStyle}>Vendor / Teknisi</label>
+                  <input style={inputStyle} value={form.vendor} onChange={function(e) { setForm({...form, vendor: e.target.value}); }} placeholder="Nama vendor" required />
                 </div>
               </div>
-              <div>
-                <label style={labelStyle}>Catatan</label>
-                <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }}
-                  value={action.notes} onChange={(e) => setAction({ ...action, notes: e.target.value })} />
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
+
+              {/* FITUR RAHASIA: MUNCUL CUMA KALAU STATUS SELESAI */}
+              {form.status === "Selesai" && (
+                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: 16, borderRadius: 8, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <h4 style={{ margin: 0, color: "#16a34a", fontSize: 13 }}>Input Data Final Perbaikan</h4>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Total Biaya (Rp)</label>
+                      <input type="number" style={inputStyle} value={form.cost} onChange={function(e) { setForm({...form, cost: e.target.value}); }} placeholder="cth: 500000" required />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Durasi Asli</label>
+                      <input style={inputStyle} value={form.duration} onChange={function(e) { setForm({...form, duration: e.target.value}); }} placeholder="cth: 2 Hari" required />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Catatan Tindakan</label>
+                    <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.notes} onChange={function(e) { setForm({...form, notes: e.target.value}); }} placeholder="Penjelasan apa saja yang diganti/diperbaiki..." required></textarea>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <button type="submit" style={btnPrimary}>💾 Simpan</button>
-                <button type="button" style={{ ...btnPrimary, background: "#64748b" }} onClick={() => setActionModal(null)}>Batal</button>
+                <button type="button" style={{ ...btnPrimary, background: "#64748b" }} onClick={function() { setModal(null); }}>Batal</button>
               </div>
             </form>
           </div>
-        </div>
-      )}
-
-      {loading ? <p style={{ color: "#64748b" }}>Memuat data...</p> : (
-        <div style={cardStyle}>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                {["#", "Aset", "Tanggal", "Pelapor", "Deskripsi", "Status", canFollowUp ? "Aksi" : null]
-                  .filter(Boolean).map((h) => <th key={h} style={thStyle}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: "#94a3b8" }}>Belum ada laporan kerusakan</td></tr>
-              )}
-              {filtered.map((r) => (
-                <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={tdStyle}>#{r.id}</td>
-                  <td style={tdStyle}><strong>{r.asset_name}</strong><div style={{ fontSize: 11, color: "#94a3b8" }}>#{r.asset_id}</div></td>
-                  <td style={{ ...tdStyle, fontSize: 12 }}>{r.report_date}</td>
-                  <td style={tdStyle}>{r.reporter}</td>
-                  <td style={{ ...tdStyle, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{r.description}</td>
-                  <td style={tdStyle}>
-                    <span style={{ background: r.status === "Selesai" ? "#d1fae5" : "#fef3c7", color: r.status === "Selesai" ? "#065f46" : "#92400e", borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>
-                      {r.status}
-                    </span>
-                  </td>
-                  {canFollowUp && (
-                    <td style={tdStyle}>
-                      {r.status !== "Selesai" && (
-                        <button style={{ ...btnSmall, background: "#dbeafe", color: "#1e40af" }}
-                          onClick={() => setActionModal(r.id)}>🔧 Tindak Lanjut</button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
     </PageShell>
@@ -1297,44 +1487,70 @@ function MaintenancePage({ user }) {
 
 // ─── HISTORY PAGE ─────────────────────────────────────────────────────────────
 function HistoryPage() {
-  const [transfers, setTransfers] = useState([]);
-  const [assets, setAssets]       = useState([]);
-  const [search, setSearch]       = useState("");
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
+  var [transfers, setTransfers] = useState([]);
+  var [assets, setAssets]       = useState([]);
+  var [search, setSearch]       = useState("");
+  var [loading, setLoading]     = useState(true);
+  var [error, setError]         = useState(null);
 
-  useEffect(() => {
+  var [detailModal, setDetailModal] = useState(null);
+  var [detailData, setDetailData] = useState({ maintenance: [], loading: false });
+
+  useEffect(function() {
     Promise.all([api.get("/transfers/history"), api.get("/assets")])
-      .then(([t, a]) => {
-        if (t.data) { setTransfers(t.data); }
+      .then(function(res) {
+        if (res[0].data) { setTransfers(res[0].data); }
         else { setError("Endpoint /api/transfers/history tidak merespons dengan benar."); }
-        setAssets(a.data || []);
+        setAssets(res[1].data || []);
         setLoading(false);
-      }).catch(() => { setError("Gagal memuat data riwayat."); setLoading(false); });
+      }).catch(function() { setError("Gagal memuat data riwayat."); setLoading(false); });
   }, []);
 
-  const getAssetName = (id) => {
-    const a = assets.find((x) => x.id === id);
-    return a ? a.name : `Aset #${id}`;
+  var getAsset = function(id) {
+    for (var i = 0; i < assets.length; i++) {
+      if (assets[i].id === id) return assets[i];
+    }
+    return null;
   };
 
-  const filtered = transfers.filter((t) => {
-    const q = search.toLowerCase();
+  var getAssetName = function(id) {
+    var a = getAsset(id);
+    return a ? a.name : "Aset #" + id;
+  };
+
+  var openDetail = async function(assetId) {
+    var asset = getAsset(assetId);
+    if (!asset) {
+      asset = { id: assetId, name: "Aset #" + assetId };
+    }
+    setDetailModal(asset);
+    setDetailData({ maintenance: [], loading: true });
+
+    var mRes = await api.get("/maintenance/asset/" + assetId);
+    var mData = mRes.data || [];
+    
+    setDetailData({ maintenance: mData, loading: false });
+  };
+
+  var filtered = transfers.filter(function(t) {
+    var q = search.toLowerCase();
     return !q || String(t.asset_id).includes(q) || getAssetName(t.asset_id).toLowerCase().includes(q)
-      || t.from_ward?.toLowerCase().includes(q) || t.to_ward?.toLowerCase().includes(q);
+      || (t.from_ward && t.from_ward.toLowerCase().includes(q)) || (t.to_ward && t.to_ward.toLowerCase().includes(q));
   });
 
-  const sColor = (s) => ({
-    background: s === "Completed" ? "#d1fae5" : s === "In Transit" ? "#dbeafe" : "#fef3c7",
-    color:      s === "Completed" ? "#065f46" : s === "In Transit" ? "#1e40af" : "#92400e",
-    borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600,
-  });
+  var sColor = function(s) {
+    return {
+      background: s === "Completed" ? "#d1fae5" : s === "In Transit" ? "#dbeafe" : "#fef3c7",
+      color:      s === "Completed" ? "#065f46" : s === "In Transit" ? "#1e40af" : "#92400e",
+      borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600,
+    };
+  };
 
   return (
     <PageShell title="Riwayat Pergerakan Aset">
       <input style={{ ...inputStyle, width: 280, marginBottom: 16 }}
         placeholder="🔍 Cari ID, nama aset, ruangan..."
-        value={search} onChange={(e) => setSearch(e.target.value)} />
+        value={search} onChange={function(e) { setSearch(e.target.value); }} />
 
       {loading ? <p style={{ color: "#64748b" }}>Memuat riwayat...</p>
         : error ? (
@@ -1343,33 +1559,79 @@ function HistoryPage() {
           <div style={cardStyle}>
             <table style={tableStyle}>
               <thead>
-                <tr>{["#", "Aset", "Dari", "Ke", "Status", "Waktu Kirim", "Selesai"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>
+                  {["#", "Aset", "Dari", "Ke", "Status", "Waktu Kirim", "Selesai", "Aksi"].map(function(h) { return <th key={h} style={thStyle}>{h}</th>; })}
+                </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: "#94a3b8" }}>
+                  <tr><td colSpan={8} style={{ ...tdStyle, textAlign: "center", color: "#94a3b8" }}>
                     {transfers.length === 0 ? "Belum ada riwayat transfer." : "Tidak ada hasil pencarian."}
                   </td></tr>
                 )}
-                {filtered.map((t) => (
+                {filtered.map(function(t) { return (
                   <tr key={t.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>#{t.id}</td>
-                    <td style={tdStyle}><strong>{getAssetName(t.asset_id)}</strong><div style={{ fontSize: 11, color: "#94a3b8" }}>#{t.asset_id}</div></td>
+                    <td style={tdStyle}>{"#" + t.id}</td>
+                    <td style={tdStyle}><strong>{getAssetName(t.asset_id)}</strong><div style={{ fontSize: 11, color: "#94a3b8" }}>{"#" + t.asset_id}</div></td>
                     <td style={tdStyle}>{t.from_ward}</td>
                     <td style={tdStyle}><strong>{t.to_ward}</strong></td>
                     <td style={tdStyle}><span style={sColor(t.transfer_status)}>{t.transfer_status}</span></td>
                     <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{fmtDate(t.requested_at)}</td>
                     <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{t.completed_at ? fmtDate(t.completed_at) : "—"}</td>
+                    <td style={tdStyle}>
+                      <button style={{ ...btnSmall, background: "#f3e8ff", color: "#7e22ce" }} onClick={function() { openDetail(t.asset_id); }}>📄 Detail Kerusakan</button>
+                    </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
         )}
+
+      {detailModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={function() { setDetailModal(null); }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 24, width: 600, maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto" }} onClick={function(e) { e.stopPropagation(); }}>
+            
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>{"Riwayat Kerusakan: " + detailModal.name}</h3>
+              <button style={btnSmall} onClick={function() { setDetailModal(null); }}>✕</button>
+            </div>
+
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, maxHeight: 350, overflowY: "auto" }}>
+              {detailData.loading ? <div style={{ padding: 12, fontSize: 13 }}>Memuat data...</div> : (
+                detailData.maintenance.length === 0 ? <div style={{ padding: 12, fontSize: 13, color: "#64748b" }}>Aset belum pernah dilaporkan rusak</div> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <tbody>
+                      {detailData.maintenance.map(function(m) { return (
+                        <tr key={m.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                          <td style={{ padding: "12px 10px" }}>
+                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + m.report_date}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
+                            <div style={{ marginBottom: 8 }}>{"Kendala: " + m.description}</div>
+                            {m.action_date ? (
+                              <div style={{ background: "#f0fdf4", borderLeft: "3px solid #22c55e", padding: 8, borderRadius: "0 6px 6px 0" }}>
+                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + m.action_date + ") - Status: " + m.status}</strong></div>
+                                <div>{"Keterangan: " + (m.action_notes || "Tidak ada catatan tambahan")}</div>
+                              </div>
+                            ) : (
+                              <div style={{ background: "#fffbeb", borderLeft: "3px solid #f59e0b", padding: 8, borderRadius: "0 6px 6px 0", color: "#92400e" }}>
+                                <strong>Belum ada tindakan perbaikan</strong>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }
-
 // ─── USERS PAGE ───────────────────────────────────────────────────────────────
 function UsersPage({ currentUser }) {
   const [users, setUsers]   = useState([]);
@@ -1498,28 +1760,9 @@ function PageShell({ title, children }) {
   );
 }
 
-function DataTable({ cols, rows }) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={tableStyle}>
-        <thead><tr>{cols.map((c) => <th key={c} style={thStyle}>{c}</th>)}</tr></thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr><td colSpan={cols.length} style={{ ...tdStyle, color: "#94a3b8", textAlign: "center" }}>Tidak ada data</td></tr>
-          )}
-          {rows.map((row, i) => (
-            <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-              {row.map((cell, j) => <td key={j} style={tdStyle}>{cell}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const today  = () => new Date().toISOString().split("T")[0];
+
 const fmtDate = (d) => { try { return new Date(d).toLocaleString("id-ID"); } catch { return d; } };
 
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────

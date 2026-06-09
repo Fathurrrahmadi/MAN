@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react"; 
+
+
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const API_BASE = "http://localhost:3000/api";
@@ -563,6 +565,7 @@ function AssetsPage() {
 
   return (
     <PageShell title="Manajemen Aset">
+      
       
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <input style={{ ...inputStyle, width: 240 }}

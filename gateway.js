@@ -1,58 +1,68 @@
-
 const express = require('express');
 const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
-// --- SWAGGER SETUP ---
-const swaggerUi = require('swagger-ui-express');
-const swaggerDocument = require('./swagger.json');
-
 const app = express();
 app.use(cors());
+// app.use(express.json());
 
-console.log("Starting API Gateway...");
+console.log("Starting API Gateway (GraphQL)...");
 
-// Serve the Swagger Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+/**
+ * GraphQL Gateway Strategy:
+ * Each microservice exposes its own /graphql endpoint.
+ * The gateway proxies /graphql/assets, /graphql/wards, /graphql/transfers, /graphql/auth
+ * to the respective service's /graphql endpoint.
+ *
+ * Alternatively, for a unified single /graphql endpoint you can use
+ * @graphql-tools/stitch — see README notes below.
+ */
 
-// Route requests to Auth Service  <-- NEW
-app.use('/api/auth', createProxyMiddleware({
+// Proxy GraphQL requests to Auth Service
+app.use('/graphql/auth', createProxyMiddleware({
     target: 'http://127.0.0.1:3004',
     changeOrigin: true,
-    pathRewrite: (path, req) => req.originalUrl
+    pathRewrite: () => '/graphql'
 }));
 
-app.use('/api/maintenance', createProxyMiddleware({
-    target: 'http://127.0.0.1:3001',   // routes to asset-service
+// Proxy GraphQL requests to Asset Service (also handles /maintenance)
+app.use('/graphql/assets', createProxyMiddleware({
+    target: 'http://127.0.0.1:3001',
     changeOrigin: true,
-    pathRewrite: (path, req) => req.originalUrl
+    pathRewrite: () => '/graphql'
 }));
 
-// Route requests to Asset Service
-app.use('/api/assets', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3001', 
+// Proxy GraphQL requests to Ward Service
+app.use('/graphql/wards', createProxyMiddleware({
+    target: 'http://127.0.0.1:3002',
     changeOrigin: true,
-    pathRewrite: (path, req) => req.originalUrl 
+    pathRewrite: () => '/graphql'
 }));
 
-// Route requests to Ward Service
-app.use('/api/wards', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3002', 
+// Proxy GraphQL requests to Transfer Service
+app.use('/graphql/transfers', createProxyMiddleware({
+    target: 'http://127.0.0.1:3003',
     changeOrigin: true,
-    pathRewrite: (path, req) => req.originalUrl
+    pathRewrite: () => '/graphql'
 }));
 
-// Route requests to Transfer Service
-app.use('/api/transfers', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3003', 
-    changeOrigin: true,
-    pathRewrite: (path, req) => req.originalUrl
-}));
-
-// Catch-all
-app.get('/', (req, res) => res.send("API Gateway is running. Visit /api-docs for documentation."));
+// Health check
+app.get('/', (req, res) =>
+    res.send(
+        'API Gateway (GraphQL) is running.\n\n' +
+        'Endpoints:\n' +
+        '  POST /graphql/auth       → Auth Service\n' +
+        '  POST /graphql/assets     → Asset Service\n' +
+        '  POST /graphql/wards      → Ward Service\n' +
+        '  POST /graphql/transfers  → Transfer Service\n\n' +
+        'Each endpoint also serves GET for the GraphiQL playground.'
+    )
+);
 
 app.listen(3000, () => {
     console.log('🌐 API Gateway running on http://localhost:3000');
-    console.log('📄 Swagger Docs available at http://localhost:3000/api-docs');
+    console.log('   Auth     → http://localhost:3000/graphql/auth');
+    console.log('   Assets   → http://localhost:3000/graphql/assets');
+    console.log('   Wards    → http://localhost:3000/graphql/wards');
+    console.log('   Transfers→ http://localhost:3000/graphql/transfers');
 });

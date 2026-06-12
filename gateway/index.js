@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
@@ -15,36 +14,36 @@ console.log("Starting API Gateway...");
 // Serve the Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Route requests to Auth Service  <-- NEW
+// Route requests to Auth Service
 app.use('/api/auth', createProxyMiddleware({
-    target: 'http://127.0.0.1:3004',
+    target: 'http://auth-service:3004',
     changeOrigin: true,
     pathRewrite: (path, req) => req.originalUrl
 }));
 
 app.use('/api/maintenance', createProxyMiddleware({
-    target: 'http://127.0.0.1:3001',   // routes to asset-service
+    target: 'http://asset-service:3001',
     changeOrigin: true,
     pathRewrite: (path, req) => req.originalUrl
 }));
 
 // Route requests to Asset Service
 app.use('/api/assets', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3001', 
+    target: 'http://asset-service:3001', 
     changeOrigin: true,
     pathRewrite: (path, req) => req.originalUrl 
 }));
 
 // Route requests to Ward Service
 app.use('/api/wards', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3002', 
+    target: 'http://ward-service:3002', 
     changeOrigin: true,
     pathRewrite: (path, req) => req.originalUrl
 }));
 
 // Route requests to Transfer Service
 app.use('/api/transfers', createProxyMiddleware({ 
-    target: 'http://127.0.0.1:3003', 
+    target: 'http://transfer-service:3003',
     changeOrigin: true,
     pathRewrite: (path, req) => req.originalUrl
 }));

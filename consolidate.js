@@ -412,8 +412,11 @@ app.delete('/api/transfers/cancel/:asset_id', async (req, res) => {
 // ==========================================
 app.get('/', (req, res) => res.send("🚀 Unified Hospital Asset API is running. Visit /api-docs for documentation."));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Hospital Asset Tracking API running on http://localhost:${PORT}`);
-    console.log(`📄 Swagger Docs available at http://localhost:${PORT}/api-docs`);
-});
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`✅ Hospital Asset Tracking API running on http://localhost:${PORT}`);
+        console.log(`📄 Swagger Docs available at http://localhost:${PORT}/api-docs`);
+    });
+}
+module.exports = app;

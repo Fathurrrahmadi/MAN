@@ -4,7 +4,6 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 app.use(cors());
-// app.use(express.json());
 
 console.log("Starting API Gateway (GraphQL)...");
 
@@ -13,35 +12,32 @@ console.log("Starting API Gateway (GraphQL)...");
  * Each microservice exposes its own /graphql endpoint.
  * The gateway proxies /graphql/assets, /graphql/wards, /graphql/transfers, /graphql/auth
  * to the respective service's /graphql endpoint.
- *
- * Alternatively, for a unified single /graphql endpoint you can use
- * @graphql-tools/stitch — see README notes below.
  */
 
 // Proxy GraphQL requests to Auth Service
 app.use('/graphql/auth', createProxyMiddleware({
-    target: 'http://127.0.0.1:3004',
+    target: 'http://auth-service:3004',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Asset Service (also handles /maintenance)
 app.use('/graphql/assets', createProxyMiddleware({
-    target: 'http://127.0.0.1:3001',
+    target: 'http://asset-service:3001',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Ward Service
 app.use('/graphql/wards', createProxyMiddleware({
-    target: 'http://127.0.0.1:3002',
+    target: 'http://ward-service:3002',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Transfer Service
 app.use('/graphql/transfers', createProxyMiddleware({
-    target: 'http://127.0.0.1:3003',
+    target: 'http://transfer-service:3003',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));

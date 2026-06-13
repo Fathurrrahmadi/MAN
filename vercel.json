@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "consolidate.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "consolidate.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "consolidate.js"
+    }
+  ]
+}

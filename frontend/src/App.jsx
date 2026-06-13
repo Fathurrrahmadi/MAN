@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const API_BASE = "http://localhost:3000/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3000/api";
 const IDLE_TIMEOUT_MS = 8 * 60 * 1000;
 
 // ─── API HELPER ──────────────────────────────────────────────────────────────

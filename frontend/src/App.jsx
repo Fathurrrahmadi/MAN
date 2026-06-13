@@ -106,44 +106,45 @@ function useAuth() {
 }
 
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
-function LoginPage({ onLogin }) {
-  const [form, setForm] = useState({ username: "", password: "" });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+function LoginPage(props) {
+  var onLogin = props.onLogin;
+  var [form, setForm] = useState({ username: "", password: "" });
+  var [error, setError] = useState("");
+  var [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  var handleSubmit = async function(e) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    setError("");
+    setLoading(true);
+
+    var queryStr = 'mutation { login(username: "' + form.username + '", password: "' + form.password + '") { token user { id username role } } }';
+
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      var res = await fetch("http://localhost:3000/graphql/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ query: queryStr })
       });
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error("Server tidak merespons dengan JSON. Pastikan semua service backend berjalan (node gateway.js, node auth-service.js, dll.)");
+
+      var data = await res.json();
+
+      if (data.errors) {
+        throw new Error(data.errors[0].message);
       }
-      if (!res.ok) throw new Error(data.error || "Login gagal");
-      onLogin(data.token, data.user);
+
+      var loginData = data.data.login;
+      onLogin(loginData.token, loginData.user);
+
     } catch (err) {
-      setError(err.message);
-    } finally { setLoading(false); }
+      setError(err.message || "Login gagal");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0369a1 100%)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "'Segoe UI', system-ui, sans-serif",
-    }}>
-      <div style={{
-        background: "rgba(255,255,255,0.97)", borderRadius: 20,
-        padding: "48px 40px", width: 380, boxShadow: "0 24px 60px rgba(0,0,0,0.35)",
-      }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0369a1 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+      <div style={{ background: "rgba(255,255,255,0.97)", borderRadius: 20, padding: "48px 40px", width: 380, boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 44, marginBottom: 8 }}>🏥</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0f172a" }}>HAMS</h1>
@@ -151,31 +152,17 @@ function LoginPage({ onLogin }) {
         </div>
         <form onSubmit={handleSubmit}>
           <label style={labelStyle}>Username</label>
-          <input style={inputStyle} value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-            placeholder="Masukkan username" required autoFocus />
-          <label style={{ ...labelStyle, marginTop: 16 }}>Password</label>
-          <input style={inputStyle} type="password" value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            placeholder="Masukkan password" required />
+          <input style={inputStyle} value={form.username} onChange={function(e) { setForm({ username: e.target.value, password: form.password }) }} placeholder="Masukkan username" required autoFocus />
+          <label style={{ marginTop: 16, display: "block", fontSize: 13, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Password</label>
+          <input style={inputStyle} type="password" value={form.password} onChange={function(e) { setForm({ username: form.username, password: e.target.value }) }} placeholder="Masukkan password" required />
           {error && (
-            <div style={{
-              color: "#dc2626", fontSize: 13, margin: "12px 0 0",
-              background: "#fef2f2", padding: "10px 12px", borderRadius: 8, lineHeight: 1.5,
-            }}>⚠ {error}</div>
+            <div style={{ color: "#dc2626", fontSize: 13, margin: "12px 0 0", background: "#fef2f2", padding: "10px 12px", borderRadius: 8, lineHeight: 1.5 }}>⚠ {error}</div>
           )}
-          <button type="submit" disabled={loading} style={{
-            width: "100%", marginTop: 24, padding: "13px",
-            background: loading ? "#93c5fd" : "#0369a1", color: "white",
-            border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600,
-            cursor: loading ? "not-allowed" : "pointer",
-          }}>
+          <button type="submit" disabled={loading} style={{ width: "100%", marginTop: 24, padding: "13px", background: loading ? "#93c5fd" : "#0369a1", color: "white", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
             {loading ? "Masuk..." : "Masuk"}
           </button>
         </form>
-        <p style={{ textAlign: "center", fontSize: 11, color: "#94a3b8", marginTop: 20, marginBottom: 0 }}>
-          Sesi berakhir otomatis setelah 8 menit tidak aktif
-        </p>
+        <p style={{ textAlign: "center", fontSize: 11, color: "#94a3b8", marginTop: 20, marginBottom: 0 }}>Sesi berakhir otomatis setelah 8 menit tidak aktif</p>
       </div>
     </div>
   );
@@ -452,16 +439,34 @@ function AssetsPage() {
   var [detailData, setDetailData] = useState({ transfers: [], maintenance: [], loading: false });
 
   var canEdit = true;
+  var token = localStorage.getItem("hams_token") || "";
 
   var load = useCallback(function() {
     setLoading(true);
-    Promise.all([api.get("/assets"), api.get("/wards")]).then(function(res) {
-      setAssets(res[0].data || []);
-      setWards(res[1].data || []);
+    
+    var fetchAssets = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ assets { id name type sub_category current_ward status qr_hash created_at } }" })
+    }).then(function(res) { return res.json(); });
+
+    var fetchWards = fetch("http://localhost:3000/graphql/wards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ wards { id ward_name } }" })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchAssets, fetchWards]).then(function(results) {
+      var assetData = results[0].data ? results[0].data.assets : [];
+      var wardData = results[1].data ? results[1].data.wards : [];
+      setAssets(assetData || []);
+      setWards(wardData || []);
+      setLoading(false);
+    }).catch(function() {
       setLoading(false);
     });
-  }, []);
-// eslint-disable-next-line react-hooks/set-state-in-effect
+  }, [token]);
+
   useEffect(function() { load(); }, [load]);
 
   var types = [];
@@ -493,65 +498,110 @@ function AssetsPage() {
   }
 
   var handleAdd = async function(e) {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault(); 
+    setSaving(true);
     var hash = "qr_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
-    var res = await api.post("/assets", { 
-      name: form.name, 
-      type: form.type, 
-      sub_category: form.sub_category, 
-      current_ward: form.current_ward, 
-      qr_hash: hash 
-    });
-    setSaving(false);
-    if (res.ok) { 
-      setShowForm(false); 
-      setForm({ name: "", type: "", sub_category: "", current_ward: "" }); 
-      load(); 
-    } else { 
-      var d = await res.json(); 
-      alert("Gagal: " + d.error); 
+    var mut = 'mutation { addAsset(name: "' + form.name + '", type: "' + form.type + '", sub_category: "' + form.sub_category + '", current_ward: "' + form.current_ward + '", qr_hash: "' + hash + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        alert("Gagal: " + data.errors[0].message);
+      } else {
+        setShowForm(false); 
+        setForm({ name: "", type: "", sub_category: "", current_ward: "" }); 
+        load(); 
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
     }
+    setSaving(false);
   };
 
   var handleDelete = async function(id, name) {
     if (!confirm("Hapus " + name + "?")) return;
-    var res = await api.del("/assets/" + id);
-    if (res.ok) load(); else alert("Gagal: " + res.data.error);
+    var mut = 'mutation { deleteAsset(id: "' + id + '") { message } }';
+    
+    var res = await fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: mut })
+    });
+    var data = await res.json();
+    if (data.errors) alert("Gagal: " + data.errors[0].message);
+    else load();
   };
 
   var handleStatusSave = async function(id, ward) {
     if (!editStatus.value) return;
-    var res = await api.put("/assets/" + id + "/location", { current_ward: ward, status: editStatus.value });
-    if (res.ok) { load(); setEditStatus({ id: null, value: "" }); }
-    else { var d = await res.json(); alert("Gagal: " + d.error); }
+    var mut = 'mutation { updateAssetLocation(id: "' + id + '", current_ward: "' + ward + '", status: "' + editStatus.value + '") { message } }';
+    
+    var res = await fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: mut })
+    });
+    var data = await res.json();
+    if (data.errors) alert("Gagal: " + data.errors[0].message);
+    else { load(); setEditStatus({ id: null, value: "" }); }
   };
 
   var openQR = async function(hash, name) {
     setQrModal({ hash: hash, name: name, image: null });
-    var d = await api.get("/assets/qr/generate/" + hash);
-    setQrModal({ hash: hash, name: name, image: d.image });
+    var qry = 'query { generateQR(hash: "' + hash + '") { image } }';
+    
+    var res = await fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qry })
+    });
+    var data = await res.json();
+    if (data.data && data.data.generateQR) {
+      setQrModal({ hash: hash, name: name, image: data.data.generateQR.image });
+    }
   };
 
   var openDetail = async function(asset) {
     setDetailModal(asset);
     setDetailData({ transfers: [], maintenance: [], loading: true });
-    var mRes = await api.get("/maintenance/asset/" + asset.id);
-    var tRes = await api.get("/transfers/history");
-    var mData = mRes.data || [];
-    var tData = [];
-    if (tRes.data) {
-      for (var p = 0; p < tRes.data.length; p++) {
-        if (String(tRes.data[p].asset_id) === String(asset.id)) {
-          tData.push(tRes.data[p]);
+    
+    var qryMaint = 'query { maintenanceByAsset(asset_id: "' + asset.id + '") { id report_date description status action_date action_notes reporter } }';
+    var qryTrans = 'query { transfers { id asset_id from_ward to_ward requested_at transfer_status } }';
+
+    var fetchMaint = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryMaint })
+    }).then(function(res) { return res.json(); });
+
+    var fetchTrans = fetch("http://localhost:3000/graphql/transfers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryTrans })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchMaint, fetchTrans]).then(function(results) {
+      var mData = results[0].data && results[0].data.maintenanceByAsset ? results[0].data.maintenanceByAsset : [];
+      var allTransfers = results[1].data && results[1].data.transfers ? results[1].data.transfers : [];
+      
+      var tData = [];
+      for (var p = 0; p < allTransfers.length; p++) {
+        if (String(allTransfers[p].asset_id) === String(asset.id)) {
+          tData.push(allTransfers[p]);
         }
       }
-    }
-    setDetailData({ transfers: tData, maintenance: mData, loading: false });
+      setDetailData({ transfers: tData, maintenance: mData, loading: false });
+    });
   };
 
   var calculateAge = function(dateString) {
     if (!dateString) return "Umur tidak diketahui";
-    var d1 = new Date(dateString);
+    var d1 = new Date(!isNaN(dateString) ? Number(dateString) : dateString);
     var d2 = new Date();
     var diff = d2.getTime() - d1.getTime();
     var days = Math.floor(diff / (1000 * 3600 * 24));
@@ -560,13 +610,12 @@ function AssetsPage() {
 
   var fmtDate = function(d) {
     if (!d) return "-";
-    return new Date(d).toLocaleString("id-ID");
+    var parsedDate = new Date(!isNaN(d) ? Number(d) : d);
+    return parsedDate.toLocaleString("id-ID");
   };
 
   return (
     <PageShell title="Manajemen Aset">
-      
-      
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <input style={{ ...inputStyle, width: 240 }}
           placeholder="🔍 Cari ID, nama, ruangan..."
@@ -764,11 +813,11 @@ function AssetsPage() {
                       {detailData.maintenance.map(function(m) { return (
                         <tr key={m.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
                           <td style={{ padding: "12px 10px" }}>
-                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + m.report_date}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
+                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + fmtDate(m.report_date)}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
                             <div style={{ marginBottom: 8 }}>{"Kendala: " + m.description}</div>
                             {m.action_date ? (
                               <div style={{ background: "#f0fdf4", borderLeft: "3px solid #22c55e", padding: 8, borderRadius: "0 6px 6px 0" }}>
-                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + m.action_date + ") - Status: " + m.status}</strong></div>
+                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + fmtDate(m.action_date) + ") - Status: " + m.status}</strong></div>
                                 <div>{"Keterangan: " + (m.action_notes || "Tidak ada catatan tambahan")}</div>
                               </div>
                             ) : (

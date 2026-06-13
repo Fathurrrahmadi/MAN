@@ -28,6 +28,7 @@ const schema = buildSchema(`
         current_ward: String
         qr_hash: String
         status: String
+        created_at: String 
     }
 
     type QRImage {

@@ -1,67 +1,19 @@
 version: '3.8'
 
 services:
-  gateway:
-    build: ./gateway
+  backend:
+    build: .
     ports:
       - "3000:3000"
-    environment:
-      - PORT=3000
-      - JWT_SECRET=hospital_asset_jwt_secret_change_in_prod
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    env_file:
+      - .env
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
     depends_on:
-      - auth-service
-      - asset-service
-      - ward-service
-      - transfer-service
-
-  auth-service:
-    build: ./auth-service
-    ports:
-      - "3004:3004"
-    environment:
-      - PORT=3004
-      - DB_HOST=hopper.proxy.rlwy.net
-      - DB_PORT=50899
-      - DB_USER=root
-      - DB_PASSWORD=oUacLZBzAvTgNEWuFQfViWyccjAgEQBd
-      - DB_NAME=railway
-      - JWT_SECRET=hospital_asset_jwt_secret_change_in_prod
-
-  asset-service:
-    build: ./asset-service
-    ports:
-      - "3001:3001"
-    environment:
-      - PORT=3001
-      - DB_HOST=hopper.proxy.rlwy.net
-      - DB_PORT=50899
-      - DB_USER=root
-      - DB_PASSWORD=oUacLZBzAvTgNEWuFQfViWyccjAgEQBd
-      - DB_NAME=railway
-      - JWT_SECRET=hospital_asset_jwt_secret_change_in_prod
-
-  ward-service:
-    build: ./ward-service
-    ports:
-      - "3002:3002"
-    environment:
-      - PORT=3002
-      - DB_HOST=hopper.proxy.rlwy.net
-      - DB_PORT=50899
-      - DB_USER=root
-      - DB_PASSWORD=oUacLZBzAvTgNEWuFQfViWyccjAgEQBd
-      - DB_NAME=railway
-      - JWT_SECRET=hospital_asset_jwt_secret_change_in_prod
-
-  transfer-service:
-    build: ./transfer-service
-    ports:
-      - "3003:3003"
-    environment:
-      - PORT=3003
-      - DB_HOST=hopper.proxy.rlwy.net
-      - DB_PORT=50899
-      - DB_USER=root
-      - DB_PASSWORD=oUacLZBzAvTgNEWuFQfViWyccjAgEQBd
-      - DB_NAME=railway
-      - JWT_SECRET=hospital_asset_jwt_secret_change_in_prod
+      - backend

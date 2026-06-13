@@ -466,7 +466,7 @@ function AssetsPage() {
       setLoading(false);
     });
   }, [token]);
-
+// eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(function() { load(); }, [load]);
 
   var types = [];
@@ -966,57 +966,109 @@ function WardsPage() {
 }
 
 // ─── TRANSFER PAGE ────────────────────────────────────────────────────────────
-function TransferPage({ userRole }) {
-  const [assets, setAssets] = useState([]);
-  const [wards, setWards]   = useState([]);
-  const [form, setForm]     = useState({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
-  const [msg, setMsg]       = useState(null);
-  const [loading, setLoading] = useState(false);
-  const canEdit = ["admin", "staff"].includes(userRole);
+function TransferPage(props) {
+  var userRole = props.userRole;
+  var [assets, setAssets] = useState([]);
+  var [wards, setWards]   = useState([]);
+  var [form, setForm]     = useState({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
+  var [msg, setMsg]       = useState(null);
+  var [loading, setLoading] = useState(false);
+  
+  var canEdit = userRole === "admin" || userRole === "staff";
+  var token = localStorage.getItem("hams_token") || "";
 
-  const loadData = useCallback(() => {
-    Promise.all([api.get("/assets"), api.get("/wards")]).then(([a, w]) => {
-      setAssets(a.data || []);
-      setWards(w.data || []);
+  var loadData = useCallback(function() {
+    var fetchAssets = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ assets { id name type current_ward status qr_hash } }" })
+    }).then(function(res) { return res.json(); });
+
+    var fetchWards = fetch("http://localhost:3000/graphql/wards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ wards { id ward_name } }" })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchAssets, fetchWards]).then(function(results) {
+      setAssets(results[0].data && results[0].data.assets ? results[0].data.assets : []);
+      setWards(results[1].data && results[1].data.wards ? results[1].data.wards : []);
     });
-  }, []);
-  useEffect(() => { loadData(); }, [loadData]);
+  }, [token]);
 
-  const availableAssets = assets.filter((a) => a.status === "Available");
-  const inTransitAssets = assets.filter((a) => a.status === "In Transit");
+  useEffect(function() { loadData(); }, [loadData]);
 
-  const handleSelectAsset = (id) => {
-    const a = assets.find((x) => String(x.id) === String(id));
+  var availableAssets = [];
+  var inTransitAssets = [];
+  for (var i = 0; i < assets.length; i++) {
+    if (assets[i].status === "Available") availableAssets.push(assets[i]);
+    if (assets[i].status === "In Transit") inTransitAssets.push(assets[i]);
+  }
+
+  var handleSelectAsset = function(id) {
+    var a = null;
+    for (var j = 0; j < assets.length; j++) {
+      if (String(assets[j].id) === String(id)) {
+        a = assets[j];
+        break;
+      }
+    }
     if (a) setForm({ assetId: id, qr_hash: a.qr_hash, from_ward: a.current_ward, to_ward: "" });
   };
 
-  const handleTransfer = async (e) => {
+  var handleTransfer = async function(e) {
     e.preventDefault();
     if (form.from_ward === form.to_ward) {
-      setMsg({ type: "error", text: "Ruangan tujuan tidak boleh sama dengan ruangan asal." }); return;
+      setMsg({ type: "error", text: "Ruangan tujuan tidak boleh sama dengan ruangan asal." }); 
+      return;
     }
-    setLoading(true); setMsg(null);
-    const res = await api.post("/transfers", { qr_hash: form.qr_hash, from_ward: form.from_ward, to_ward: form.to_ward });
-    const d = await res.json();
+    setLoading(true); 
+    setMsg(null);
+
+    var mut = 'mutation { initiateTransfer(qr_hash: "' + form.qr_hash + '", from_ward: "' + form.from_ward + '", to_ward: "' + form.to_ward + '") { message } }';
+
+    try {
+      var res = await fetch("http://localhost:3000/graphql/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      
+      if (data.errors) {
+        setMsg({ type: "error", text: data.errors[0].message });
+      } else {
+        setMsg({ type: "success", text: "Transfer berhasil diinisiasi! Aset sekarang 'In Transit'." });
+        setForm({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
+        loadData();
+      }
+    } catch (err) {
+      setMsg({ type: "error", text: "Gagal melakukan transfer: " + err.message });
+    }
     setLoading(false);
-    if (res.ok) {
-      setMsg({ type: "success", text: "Transfer berhasil diinisiasi! Aset sekarang 'In Transit'." });
-      setForm({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
-      loadData();
-    } else {
-      setMsg({ type: "error", text: d.error || d.message || "Gagal melakukan transfer" });
-    }
   };
 
-  // FIXED: uses new api.del which returns {ok, data} — no more silent failure
-  const handleCancel = async (assetId, name) => {
-    if (!confirm(`Batalkan transit untuk "${name}"?`)) return;
-    const { ok, data } = await api.del(`/transfers/cancel/${assetId}`);
-    if (ok) {
-      setMsg({ type: "success", text: `Transit untuk "${name}" dibatalkan. Aset kembali 'Available'.` });
-      loadData();
-    } else {
-      setMsg({ type: "error", text: "Gagal membatalkan: " + (data.error || "Server error") });
+  var handleCancel = async function(assetId, name) {
+    if (!confirm('Batalkan transit untuk "' + name + '"?')) return;
+    
+    var mut = 'mutation { cancelTransfer(asset_id: "' + assetId + '") { message } }';
+
+    try {
+      var res = await fetch("http://localhost:3000/graphql/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+
+      if (data.errors) {
+        setMsg({ type: "error", text: "Gagal membatalkan: " + data.errors[0].message });
+      } else {
+        setMsg({ type: "success", text: 'Transit untuk "' + name + '" dibatalkan. Aset kembali Available.' });
+        loadData();
+      }
+    } catch (err) {
+      setMsg({ type: "error", text: "Gagal membatalkan: " + err.message });
     }
   };
 
@@ -1029,11 +1081,11 @@ function TransferPage({ userRole }) {
             <div>
               <label style={labelStyle}>Pilih Aset (Tersedia)</label>
               <select style={{ ...inputStyle, width: 250 }} value={form.assetId}
-                onChange={(e) => handleSelectAsset(e.target.value)} required>
+                onChange={function(e) { handleSelectAsset(e.target.value); }} required>
                 <option value="">-- Pilih Aset --</option>
-                {availableAssets.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} (#{a.id}) — {a.current_ward}</option>
-                ))}
+                {availableAssets.map(function(a) {
+                  return <option key={a.id} value={a.id}>{a.name + " (#" + a.id + ") — " + a.current_ward}</option>;
+                })}
               </select>
             </div>
             <div>
@@ -1044,9 +1096,9 @@ function TransferPage({ userRole }) {
             <div>
               <label style={labelStyle}>Ke Ruangan</label>
               <input style={{ ...inputStyle, width: 140 }} list="ward-dl-t"
-                value={form.to_ward} onChange={(e) => setForm({ ...form, to_ward: e.target.value })}
+                value={form.to_ward} onChange={function(e) { setForm({ assetId: form.assetId, qr_hash: form.qr_hash, from_ward: form.from_ward, to_ward: e.target.value }); }}
                 placeholder="Tujuan" required />
-              <datalist id="ward-dl-t">{wards.map((w) => <option key={w.id} value={w.ward_name} />)}</datalist>
+              <datalist id="ward-dl-t">{wards.map(function(w) { return <option key={w.id} value={w.ward_name} />; })}</datalist>
             </div>
             <button type="submit" style={btnPrimary} disabled={loading || !form.qr_hash}>
               {loading ? "..." : "🚚 Kirim"}
@@ -1063,29 +1115,37 @@ function TransferPage({ userRole }) {
       )}
 
       <div style={cardStyle}>
-        <h3 style={sectionTitle}>Aset Sedang In Transit ({inTransitAssets.length})</h3>
+        <h3 style={sectionTitle}>{"Aset Sedang In Transit (" + inTransitAssets.length + ")"}</h3>
         {inTransitAssets.length === 0
           ? <p style={{ color: "#94a3b8", fontSize: 14 }}>Tidak ada aset yang sedang dalam perjalanan.</p>
           : (
             <table style={tableStyle}>
               <thead>
-                <tr>{["ID", "Nama", "Ruangan Saat Ini", "Status", canEdit ? "Aksi" : null].filter(Boolean).map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>
+                  <th style={thStyle}>ID</th>
+                  <th style={thStyle}>Nama</th>
+                  <th style={thStyle}>Ruangan Saat Ini</th>
+                  <th style={thStyle}>Status</th>
+                  {canEdit ? <th style={thStyle}>Aksi</th> : null}
+                </tr>
               </thead>
               <tbody>
-                {inTransitAssets.map((a) => (
-                  <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>#{a.id}</td>
-                    <td style={tdStyle}><strong>{a.name}</strong></td>
-                    <td style={tdStyle}>{a.current_ward}</td>
-                    <td style={tdStyle}><Badge status={a.status} /></td>
-                    {canEdit && (
-                      <td style={tdStyle}>
-                        <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
-                          onClick={() => handleCancel(a.id, a.name)}>✕ Batalkan</button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {inTransitAssets.map(function(a) {
+                  return (
+                    <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <td style={tdStyle}>{"#" + a.id}</td>
+                      <td style={tdStyle}><strong>{a.name}</strong></td>
+                      <td style={tdStyle}>{a.current_ward}</td>
+                      <td style={tdStyle}><Badge status={a.status} /></td>
+                      {canEdit && (
+                        <td style={tdStyle}>
+                          <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
+                            onClick={function() { handleCancel(a.id, a.name); }}>✕ Batalkan</button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -1108,6 +1168,8 @@ function ScannerPage() {
   var [reportSaving, setReportSaving] = useState(false);
   var [actionMsg, setActionMsg]   = useState(null);
   var html5Ref = useRef(null);
+  
+  var token = localStorage.getItem("hams_token") || "";
 
   useEffect(function() {
     if (window.Html5Qrcode) return;
@@ -1126,20 +1188,49 @@ function ScannerPage() {
     if (!hash || !hash.trim()) return;
     setVerifying(true); setResult(null); setTransfer(null); setMaintenanceLog(null); setActionMsg(null);
     try {
-      var res = await api.get("/assets/qr/" + hash.trim());
-      if (res.data) {
-        setResult(res.data);
-        if (res.data.status === "In Transit") {
-          var t = await api.get("/transfers/active/" + res.data.id);
-          setTransfer(t.data || null);
+      var qryAsset = 'query { assetByQR(hash: "' + hash.trim() + '") { id name type current_ward status } }';
+      var resAsset = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: qryAsset })
+      });
+      var dataAsset = await resAsset.json();
+
+      if (dataAsset.errors) {
+        setResult({ __error: true, msg: dataAsset.errors[0].message });
+      } else if (dataAsset.data && dataAsset.data.assetByQR) {
+        var assetObj = dataAsset.data.assetByQR;
+        setResult(assetObj);
+
+        if (assetObj.status === "In Transit") {
+          var qryTrans = 'query { activeTransfer(asset_id: "' + assetObj.id + '") { id from_ward to_ward transfer_status } }';
+          var resTrans = await fetch("http://localhost:3000/graphql/transfers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+            body: JSON.stringify({ query: qryTrans })
+          });
+          var dataTrans = await resTrans.json();
+          if (dataTrans.data && dataTrans.data.activeTransfer) {
+            setTransfer(dataTrans.data.activeTransfer);
+          }
         }
-        var m = await api.get("/maintenance/asset/" + res.data.id);
-        setMaintenanceLog(m.data || []);
+
+        var qryMaint = 'query { maintenanceByAsset(asset_id: "' + assetObj.id + '") { id report_date description status action_date action_notes start_date estimated_end_date duration_days cost } }';
+        var resMaint = await fetch("http://localhost:3000/graphql/assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ query: qryMaint })
+        });
+        var dataMaint = await resMaint.json();
+        if (dataMaint.data && dataMaint.data.maintenanceByAsset) {
+          setMaintenanceLog(dataMaint.data.maintenanceByAsset);
+        } else {
+          setMaintenanceLog([]);
+        }
       } else {
-        setResult({ __error: true, msg: res.error || "Aset tidak ditemukan" });
+        setResult({ __error: true, msg: "Aset tidak ditemukan" });
       }
     } catch (e) {
-      console.error(e);
       setResult({ __error: true, msg: "Gagal terhubung ke server" });
     }
     setVerifying(false);
@@ -1172,13 +1263,23 @@ function ScannerPage() {
 
   var confirmReceive = async function() {
     if (!transfer) return;
-    var res = await api.put("/transfers/receive/" + transfer.id, {});
-    if (res.ok) {
-      setActionMsg({ type: "success", text: "✅ Aset berhasil diterima dan sekarang 'In Use' di " + transfer.to_ward + "." });
-      setResult({ ...result, status: "In Use", current_ward: transfer.to_ward });
-      setTransfer(null);
-    } else {
-      setActionMsg({ type: "error", text: "Gagal konfirmasi penerimaan." });
+    var mut = 'mutation { receiveTransfer(id: "' + transfer.id + '") { message } }';
+    try {
+      var res = await fetch("http://localhost:3000/graphql/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        setActionMsg({ type: "error", text: "Gagal konfirmasi: " + data.errors[0].message });
+      } else {
+        setActionMsg({ type: "success", text: "✅ Aset berhasil diterima dan sekarang 'In Use' di " + transfer.to_ward + "." });
+        setResult({ id: result.id, name: result.name, type: result.type, status: "In Use", current_ward: transfer.to_ward });
+        setTransfer(null);
+      }
+    } catch(e) {
+      setActionMsg({ type: "error", text: "Gagal terhubung ke server." });
     }
   };
 
@@ -1190,21 +1291,38 @@ function ScannerPage() {
   var submitReport = async function() {
     if (!reportDesc.trim() || !result) return;
     setReportSaving(true);
-    var res = await api.post("/maintenance", {
-      asset_id: result.id, asset_name: result.name, type: result.type,
-      report_date: new Date().toISOString().split("T")[0],
-      description: reportDesc, reporter: "Scanner",
-    });
-    setReportSaving(false);
-    if (res.ok) {
-      setActionMsg({ type: "success", text: "📋 Laporan kerusakan berhasil dikirim." });
-      setReportForm(false); setReportDesc("");
-      var m = await api.get("/maintenance/asset/" + result.id);
-      setMaintenanceLog(m.data || []);
-    } else {
-      var d = await res.json();
-      setActionMsg({ type: "error", text: "Gagal: " + d.error });
+    var today = new Date().getTime().toString();
+    var mut = 'mutation { createMaintenanceReport(asset_id: "' + result.id + '", asset_name: "' + result.name + '", type: "' + result.type + '", report_date: "' + today + '", description: "' + reportDesc + '", reporter: "Scanner") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        setActionMsg({ type: "error", text: "Gagal: " + data.errors[0].message });
+      } else {
+        setActionMsg({ type: "success", text: "📋 Laporan kerusakan berhasil dikirim." });
+        setReportForm(false); 
+        setReportDesc("");
+        
+        var qryMaint = 'query { maintenanceByAsset(asset_id: "' + result.id + '") { id report_date description status action_date action_notes start_date estimated_end_date duration_days cost } }';
+        var resMaint = await fetch("http://localhost:3000/graphql/assets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ query: qryMaint })
+        });
+        var dataMaint = await resMaint.json();
+        if (dataMaint.data && dataMaint.data.maintenanceByAsset) {
+          setMaintenanceLog(dataMaint.data.maintenanceByAsset);
+        }
+      }
+    } catch (e) {
+      setActionMsg({ type: "error", text: "Gagal mengirim laporan." });
     }
+    setReportSaving(false);
   };
 
   var msgStyle = function(type) {
@@ -1213,6 +1331,12 @@ function ScannerPage() {
       background: type === "success" ? "#d1fae5" : type === "warn" ? "#fffbeb" : "#fee2e2",
       color:      type === "success" ? "#065f46" : type === "warn" ? "#92400e" : "#991b1b",
     };
+  };
+
+  var fmtDate = function(d) {
+    if (!d) return "-";
+    var parsedDate = new Date(!isNaN(d) ? Number(d) : d);
+    return parsedDate.toLocaleString("id-ID").split(" ")[0];
   };
 
   return (
@@ -1290,7 +1414,7 @@ function ScannerPage() {
                           return (
                             <div key={m.id} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: 6, marginBottom: 8, fontSize: 12, borderLeft: m.status === "Selesai" ? "3px solid #22c55e" : "3px solid #f59e0b" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                                <strong>{m.report_date}</strong>
+                                <strong>{fmtDate(m.report_date)}</strong>
                                 <span style={{ color: m.status === "Selesai" ? "#16a34a" : "#d97706", fontWeight: 600 }}>{m.status}</span>
                               </div>
                               <div style={{ color: "#475569" }}>{"Kendala: " + m.description}</div>
@@ -1298,14 +1422,14 @@ function ScannerPage() {
                               {m.start_date && m.status !== "Selesai" && (
                                 <div style={{ background: "#e0f2fe", padding: "6px 8px", borderRadius: 4, marginTop: 8, border: "1px solid #bae6fd" }}>
                                   <div style={{ color: "#0369a1", fontWeight: 600, marginBottom: 2 }}>Informasi Tindak Lanjut:</div>
-                                  <div style={{ color: "#0c4a6e" }}>{"Mulai Eksekusi: " + m.start_date}</div>
-                                  <div style={{ color: "#0c4a6e" }}>{"Estimasi Selesai: " + (m.estimated_end_date ? m.estimated_end_date : "-")}</div>
+                                  <div style={{ color: "#0c4a6e" }}>{"Mulai Eksekusi: " + fmtDate(m.start_date)}</div>
+                                  <div style={{ color: "#0c4a6e" }}>{"Estimasi Selesai: " + (m.estimated_end_date ? fmtDate(m.estimated_end_date) : "-")}</div>
                                 </div>
                               )}
 
                               {m.status === "Selesai" && m.action_date && (
                                 <div style={{ background: "#f0fdf4", padding: "6px 8px", borderRadius: 4, marginTop: 8, border: "1px solid #bbf7d0" }}>
-                                  <div style={{ color: "#166534", fontWeight: 600, marginBottom: 2 }}>{"Tindakan Selesai (" + m.action_date + "):"}</div>
+                                  <div style={{ color: "#166534", fontWeight: 600, marginBottom: 2 }}>{"Tindakan Selesai (" + fmtDate(m.action_date) + "):"}</div>
                                   <div style={{ color: "#14532d" }}>{"Durasi: " + m.duration_days + " hari | Biaya: Rp " + m.cost}</div>
                                   <div style={{ color: "#14532d", marginTop: 2 }}>{"Catatan: " + (m.action_notes ? m.action_notes : "-")}</div>
                                 </div>
@@ -1360,36 +1484,64 @@ function MaintenancePage() {
     cost: "", duration: "", notes: ""
   });
 
+  var token = localStorage.getItem("hams_token") || "";
+
   var load = useCallback(function() {
-    Promise.all([api.get("/maintenance"), api.get("/assets")]).then(function(res) {
-      setReports(res[0].data || []);
-      setAssets(res[1].data || []);
+    var qryMaint = 'query { maintenanceReports { id asset_id asset_name report_date description status reporter action_date vendor cost duration_days action_notes } }';
+    var fetchMaint = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryMaint })
+    }).then(function(res) { return res.json(); });
+
+    var qryAssets = 'query { assets { id name } }';
+    var fetchAssets = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryAssets })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchMaint, fetchAssets]).then(function(results) {
+      setReports(results[0].data && results[0].data.maintenanceReports ? results[0].data.maintenanceReports : []);
+      setAssets(results[1].data && results[1].data.assets ? results[1].data.assets : []);
     });
-  }, []);
+  }, [token]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(function() { load(); }, [load]);
 
   var handleSave = async function(e) {
     e.preventDefault();
-    var payload = {
-      status: form.status,
-      start_date: form.start_date,
-      est_date: form.est_date,
-      vendor: form.vendor,
-      cost: form.status === "Selesai" ? form.cost : null,
-      duration: form.status === "Selesai" ? form.duration : null,
-      action_notes: form.status === "Selesai" ? form.notes : null
-    };
     
-    // Sesuaikan endpoint ini dengan backend kamu, biasanya /maintenance/:id atau /maintenance/:id/action
-    var res = await api.put("/maintenance/" + modal.id, payload); 
-    if (res.ok) { 
-      setModal(null); 
-      load(); 
-    } else { 
-      alert("Gagal menyimpan tindak lanjut."); 
+    var actionDateStr = form.status === "Selesai" ? new Date().getTime().toString() : "";
+    var costNum = form.status === "Selesai" && form.cost ? parseFloat(form.cost) : 0;
+    var durNum = form.status === "Selesai" && form.duration ? parseInt(form.duration) : 0;
+    var notesStr = form.status === "Selesai" ? form.notes : "";
+
+    var mut = 'mutation { addMaintenanceAction(report_id: "' + modal.id + '", start_date: "' + form.start_date + '", estimated_end_date: "' + form.est_date + '", action_date: "' + actionDateStr + '", vendor: "' + form.vendor + '", cost: ' + costNum + ', duration_days: ' + durNum + ', notes: "' + notesStr + '", status: "' + form.status + '") { message } }';
+
+    try {
+      var res = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        alert("Gagal: " + data.errors[0].message);
+      } else {
+        setModal(null);
+        load();
+      }
+    } catch (err) {
+      alert("Gagal menyimpan tindak lanjut: " + err.message);
     }
+  };
+
+  var fmtDate = function(d) {
+    if (!d) return "-";
+    var parsedDate = new Date(!isNaN(d) ? Number(d) : d);
+    return parsedDate.toLocaleString("id-ID").split(" ")[0];
   };
 
   var grouped = {};
@@ -1398,12 +1550,17 @@ function MaintenancePage() {
     if (filterStatus && r.status !== filterStatus) continue;
     
     var assetName = "Aset #" + r.asset_id;
-    for (var j = 0; j < assets.length; j++) {
-      if (String(assets[j].id) === String(r.asset_id)) {
-        assetName = assets[j].name + " (#" + assets[j].id + ")";
-        break;
+    if (r.asset_name) {
+      assetName = r.asset_name + " (#" + r.asset_id + ")";
+    } else {
+      for (var j = 0; j < assets.length; j++) {
+        if (String(assets[j].id) === String(r.asset_id)) {
+          assetName = assets[j].name + " (#" + assets[j].id + ")";
+          break;
+        }
       }
     }
+    
     if (!grouped[assetName]) grouped[assetName] = [];
     grouped[assetName].push(r);
   }
@@ -1442,7 +1599,7 @@ function MaintenancePage() {
                     {grouped[assetName].map(function(r) { return (
                       <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                         <td style={{ padding: "10px 16px" }}>{"#" + r.id}</td>
-                        <td style={{ padding: "10px 16px" }}>{r.report_date}</td>
+                        <td style={{ padding: "10px 16px" }}>{fmtDate(r.report_date)}</td>
                         <td style={{ padding: "10px 16px" }}>{r.description}</td>
                         <td style={{ padding: "10px 16px" }}>
                           <span style={{ fontWeight: 600, color: r.status === "Selesai" ? "#16a34a" : r.status === "Diperbaiki" ? "#ca8a04" : "#dc2626" }}>
@@ -1482,45 +1639,44 @@ function MaintenancePage() {
               <div style={{ display: "flex", gap: 16 }}>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Mulai Eksekusi</label>
-                  <input type="date" style={inputStyle} value={form.start_date} onChange={function(e) { setForm({...form, start_date: e.target.value}); }} required />
+                  <input type="date" style={inputStyle} value={form.start_date} onChange={function(e) { setForm({status: form.status, start_date: e.target.value, est_date: form.est_date, vendor: form.vendor, cost: form.cost, duration: form.duration, notes: form.notes}); }} required />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Estimasi Selesai</label>
-                  <input type="date" style={inputStyle} value={form.est_date} onChange={function(e) { setForm({...form, est_date: e.target.value}); }} required />
+                  <input type="date" style={inputStyle} value={form.est_date} onChange={function(e) { setForm({status: form.status, start_date: form.start_date, est_date: e.target.value, vendor: form.vendor, cost: form.cost, duration: form.duration, notes: form.notes}); }} required />
                 </div>
               </div>
 
               <div style={{ display: "flex", gap: 16 }}>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Status Saat Ini</label>
-                  <select style={inputStyle} value={form.status} onChange={function(e) { setForm({...form, status: e.target.value}); }}>
+                  <select style={inputStyle} value={form.status} onChange={function(e) { setForm({status: e.target.value, start_date: form.start_date, est_date: form.est_date, vendor: form.vendor, cost: form.cost, duration: form.duration, notes: form.notes}); }}>
                     <option value="Diperbaiki">Diperbaiki</option>
                     <option value="Selesai">Selesai</option>
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Vendor / Teknisi</label>
-                  <input style={inputStyle} value={form.vendor} onChange={function(e) { setForm({...form, vendor: e.target.value}); }} placeholder="Nama vendor" required />
+                  <input style={inputStyle} value={form.vendor} onChange={function(e) { setForm({status: form.status, start_date: form.start_date, est_date: form.est_date, vendor: e.target.value, cost: form.cost, duration: form.duration, notes: form.notes}); }} placeholder="Nama vendor" required />
                 </div>
               </div>
 
-              {/* FITUR RAHASIA: MUNCUL CUMA KALAU STATUS SELESAI */}
               {form.status === "Selesai" && (
                 <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: 16, borderRadius: 8, display: "flex", flexDirection: "column", gap: 12 }}>
                   <h4 style={{ margin: 0, color: "#16a34a", fontSize: 13 }}>Input Data Final Perbaikan</h4>
                   <div style={{ display: "flex", gap: 16 }}>
                     <div style={{ flex: 1 }}>
                       <label style={labelStyle}>Total Biaya (Rp)</label>
-                      <input type="number" style={inputStyle} value={form.cost} onChange={function(e) { setForm({...form, cost: e.target.value}); }} placeholder="cth: 500000" required />
+                      <input type="number" style={inputStyle} value={form.cost} onChange={function(e) { setForm({status: form.status, start_date: form.start_date, est_date: form.est_date, vendor: form.vendor, cost: e.target.value, duration: form.duration, notes: form.notes}); }} placeholder="cth: 500000" required />
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={labelStyle}>Durasi Asli</label>
-                      <input style={inputStyle} value={form.duration} onChange={function(e) { setForm({...form, duration: e.target.value}); }} placeholder="cth: 2 Hari" required />
+                      <input style={inputStyle} value={form.duration} onChange={function(e) { setForm({status: form.status, start_date: form.start_date, est_date: form.est_date, vendor: form.vendor, cost: form.cost, duration: e.target.value, notes: form.notes}); }} placeholder="cth: 2" required />
                     </div>
                   </div>
                   <div>
                     <label style={labelStyle}>Catatan Tindakan</label>
-                    <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.notes} onChange={function(e) { setForm({...form, notes: e.target.value}); }} placeholder="Penjelasan apa saja yang diganti/diperbaiki..." required></textarea>
+                    <textarea style={{ ...inputStyle, minHeight: 60 }} value={form.notes} onChange={function(e) { setForm({status: form.status, start_date: form.start_date, est_date: form.est_date, vendor: form.vendor, cost: form.cost, duration: form.duration, notes: e.target.value}); }} placeholder="Penjelasan apa saja yang diganti/diperbaiki..." required></textarea>
                   </div>
                 </div>
               )}

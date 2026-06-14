@@ -3,42 +3,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const API_BASE = "http://localhost:3000/api";
 const IDLE_TIMEOUT_MS = 8 * 60 * 1000;
 
-// ─── API HELPER ──────────────────────────────────────────────────────────────
-const token = () => localStorage.getItem("hams_token") || "";
-const authHeader = () => ({ Authorization: `Bearer ${token()}` });
 
-const api = {
-  get: (path) =>
-    fetch(`${API_BASE}${path}`, { headers: authHeader() }).then((r) => r.json()),
 
-  post: (path, body) =>
-    fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify(body),
-    }),
-
-  put: (path, body) =>
-    fetch(`${API_BASE}${path}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify(body),
-    }),
-
-  // Returns { ok, data } — always safe to destructure, never throws
-  del: async (path) => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "DELETE",
-      headers: authHeader(),
-    });
-    let data = {};
-    try { data = await res.json(); } catch (err) { console.error(err); }
-    return { ok: res.ok, status: res.status, data };
-  },
-};
 
 // ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -288,20 +256,32 @@ function MainLayout({ user, logout, children, activePage, setActivePage }) {
 function DashboardPage() {
   var [assets, setAssets] = useState([]);
   var [loading, setLoading] = useState(true);
-  var [expandedCat, setExpandedCat] = useState(null); // Untuk sistem 2 layer
+  var [expandedCat, setExpandedCat] = useState(null); 
+
+  var token = localStorage.getItem("hams_token") || "";
 
   var load = useCallback(function() {
     setLoading(true);
-    api.get("/assets").then(function(res) {
-      setAssets(res.data || []);
+    var qry = 'query { assets { type sub_category status } }';
+    fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qry })
+    }).then(function(res) {
+      return res.json();
+    }).then(function(data) {
+      if (data.data && data.data.assets) {
+        setAssets(data.data.assets);
+      }
+      setLoading(false);
+    }).catch(function() {
       setLoading(false);
     });
-  }, []);
+  }, [token]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(function() { load(); }, [load]);
 
-  // Logika mengelompokkan data (Layer 1: Kategori, Layer 2: Sub-kategori)
   var categories = {};
   for (var i = 0; i < assets.length; i++) {
     var a = assets[i];
@@ -332,7 +312,6 @@ function DashboardPage() {
   return (
     <PageShell title="Dashboard Utama">
       
-      {/* KOTAK STATISTIK TOTAL */}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
         <div style={{ ...cardStyle, flex: 1, minWidth: 200, borderLeft: "4px solid #3b82f6" }}>
           <h3 style={{ margin: "0 0 5px", color: "#64748b", fontSize: 13 }}>Total Aset Terdaftar</h3>
@@ -354,7 +333,6 @@ function DashboardPage() {
 
       <h3 style={sectionTitle}>Data Per Kategori & Grafik Pemakaian (Klik untuk detail)</h3>
       
-      {/* DASHBOARD 2 LAYER */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {Object.keys(categories).map(function(catName) {
           var c = categories[catName];
@@ -363,7 +341,6 @@ function DashboardPage() {
 
           return (
             <div key={catName} style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
-              {/* LAYER 1: KATEGORI UTAMA */}
               <div 
                 style={{ padding: "16px", cursor: "pointer", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, background: isExpanded ? "#f8fafc" : "white" }}
                 onClick={function() { setExpandedCat(isExpanded ? null : catName); }}
@@ -373,14 +350,12 @@ function DashboardPage() {
                   <span style={{ fontSize: 12, color: "#64748b" }}>{c.total + " Total Aset"}</span>
                 </div>
                 
-                {/* Info Angka */}
                 <div style={{ display: "flex", gap: 12, fontSize: 13 }}>
                   <span style={{ background: "#d1fae5", color: "#065f46", padding: "4px 10px", borderRadius: 6 }}>Tersedia: <strong>{c.available}</strong></span>
                   <span style={{ background: "#fef3c7", color: "#92400e", padding: "4px 10px", borderRadius: 6 }}>Dipakai: <strong>{c.inUse}</strong></span>
                   <span style={{ background: "#fee2e2", color: "#991b1b", padding: "4px 10px", borderRadius: 6 }}>Rusak: <strong>{c.maintenance}</strong></span>
                 </div>
 
-                {/* Grafik Bar Sederhana */}
                 <div style={{ flex: 1, minWidth: 150 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4, color: "#64748b" }}>
                     <span>Pemakaian</span>
@@ -394,7 +369,6 @@ function DashboardPage() {
                 <div style={{ fontWeight: "bold", color: "#94a3b8" }}>{isExpanded ? "▲" : "▼"}</div>
               </div>
 
-              {/* LAYER 2: SUB-KATEGORI (Muncul kalau diklik) */}
               {isExpanded && (
                 <div style={{ background: "#f1f5f9", padding: "16px", borderTop: "1px solid #e2e8f0" }}>
                   <h5 style={{ margin: "0 0 10px", color: "#475569" }}>Detail Sub-Kategori:</h5>
@@ -850,46 +824,108 @@ function WardsPage() {
   var [editWard, setEditWard] = useState({ id: null, name: "" });
 
   var canEdit = true;
+  var token = localStorage.getItem("hams_token") || "";
 
   var load = useCallback(function() {
     setLoading(true);
-    Promise.all([api.get("/wards"), api.get("/assets")]).then(function(res) {
-      setWards(res[0].data || []);
-      setAssets(res[1].data || []);
+    
+    var fetchWards = fetch("http://localhost:3000/graphql/wards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ wards { id ward_name } }" })
+    }).then(function(res) { return res.json(); });
+
+    var fetchAssets = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ assets { id name current_ward status } }" })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchWards, fetchAssets]).then(function(res) {
+      setWards(res[0].data && res[0].data.wards ? res[0].data.wards : []);
+      setAssets(res[1].data && res[1].data.assets ? res[1].data.assets : []);
       setLoading(false);
     });
-  }, []);
+  }, [token]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(function() { load(); }, [load]);
 
   var handleAddWard = async function(e) {
-    e.preventDefault(); setSaving(true);
-    var res = await api.post("/wards", { ward_name: newWard });
+    e.preventDefault(); 
+    setSaving(true);
+    var mut = 'mutation { addWard(ward_name: "' + newWard + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/wards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        alert("Gagal: " + data.errors[0].message);
+      } else {
+        setNewWard(""); 
+        load();
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
     setSaving(false);
-    if (res.ok) { setNewWard(""); load(); }
-    else { var d = await res.json(); alert("Gagal: " + d.error); }
   };
 
   var handleDeleteWard = async function(id, name) {
     if (!confirm("Hapus ruangan " + name + "?")) return;
-    var res = await api.del("/wards/" + id);
-    if (res.ok) load(); else alert("Gagal: " + res.data.error);
+    var mut = 'mutation { deleteWard(id: "' + id + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/wards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        alert("Gagal: " + data.errors[0].message);
+      } else {
+        load();
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
   };
 
   var handleSaveEdit = async function(id) {
     if (!editWard.name) return;
-    var res = await api.put("/wards/" + id, { ward_name: editWard.name });
-    if (res.ok) {
-      setEditWard({ id: null, name: "" });
-      load();
-    } else {
-      alert("Gagal update nama ruangan");
+    var mut = 'mutation { updateWardName(id: "' + id + '", ward_name: "' + editWard.name + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      if (data.errors) {
+        alert("Gagal update nama ruangan: " + data.errors[0].message);
+      } else {
+        setEditWard({ id: null, name: "" });
+        load();
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
     }
   };
 
   var getWardAssets = function(name) {
-    return assets.filter(function(a) { return a.current_ward === name; });
+    var arr = [];
+    for (var i = 0; i < assets.length; i++) {
+      if (assets[i].current_ward === name) {
+        arr.push(assets[i]);
+      }
+    }
+    return arr;
   };
 
   if (loading) return <PageShell title="Manajemen Ruangan"><p style={{ color: "#64748b" }}>Memuat...</p></PageShell>;
@@ -910,9 +946,14 @@ function WardsPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
         {wards.map(function(w) {
           var wa = getWardAssets(w.ward_name);
-          var available = wa.filter(function(a) { return a.status === "Available"; }).length;
-          var inUse     = wa.filter(function(a) { return a.status === "In Use"; }).length;
-          var steril    = wa.filter(function(a) { return a.status === "Sterilization"; }).length;
+          var available = 0;
+          var inUse = 0;
+          var steril = 0;
+          for (var i = 0; i < wa.length; i++) {
+            if (wa[i].status === "Available") available++;
+            if (wa[i].status === "In Use") inUse++;
+            if (wa[i].status === "Sterilization") steril++;
+          }
           
           return (
             <div key={w.id} style={cardStyle}>
@@ -1230,7 +1271,8 @@ function ScannerPage() {
       } else {
         setResult({ __error: true, msg: "Aset tidak ditemukan" });
       }
-    } catch (e) {
+      // eslint-disable-next-line no-unused-vars
+    } catch(e) {
       setResult({ __error: true, msg: "Gagal terhubung ke server" });
     }
     setVerifying(false);
@@ -1278,6 +1320,7 @@ function ScannerPage() {
         setResult({ id: result.id, name: result.name, type: result.type, status: "In Use", current_ward: transfer.to_ward });
         setTransfer(null);
       }
+      // eslint-disable-next-line no-unused-vars
     } catch(e) {
       setActionMsg({ type: "error", text: "Gagal terhubung ke server." });
     }
@@ -1319,6 +1362,7 @@ function ScannerPage() {
           setMaintenanceLog(dataMaint.data.maintenanceByAsset);
         }
       }
+      // eslint-disable-next-line no-unused-vars
     } catch (e) {
       setActionMsg({ type: "error", text: "Gagal mengirim laporan." });
     }
@@ -1507,7 +1551,7 @@ function MaintenancePage() {
     });
   }, [token]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  
   useEffect(function() { load(); }, [load]);
 
   var handleSave = async function(e) {
@@ -1704,19 +1748,50 @@ function HistoryPage() {
   var [detailModal, setDetailModal] = useState(null);
   var [detailData, setDetailData] = useState({ maintenance: [], loading: false });
 
+  var token = localStorage.getItem("hams_token") || "";
+
   useEffect(function() {
-    Promise.all([api.get("/transfers/history"), api.get("/assets")])
+    var qryTrans = 'query { transferHistory { id asset_id from_ward to_ward transfer_status requested_at completed_at } }';
+    var fetchTrans = fetch("http://localhost:3000/graphql/transfers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryTrans })
+    }).then(function(res) { return res.json(); });
+
+    var qryAssets = 'query { assets { id name } }';
+    var fetchAssets = fetch("http://localhost:3000/graphql/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qryAssets })
+    }).then(function(res) { return res.json(); });
+
+    Promise.all([fetchTrans, fetchAssets])
       .then(function(res) {
-        if (res[0].data) { setTransfers(res[0].data); }
-        else { setError("Endpoint /api/transfers/history tidak merespons dengan benar."); }
-        setAssets(res[1].data || []);
+        if (res[0].data && res[0].data.transferHistory) { 
+          setTransfers(res[0].data.transferHistory); 
+        } else { 
+          setError("Gagal mengambil riwayat transfer."); 
+        }
+        
+        if (res[1].data && res[1].data.assets) {
+          setAssets(res[1].data.assets);
+        }
         setLoading(false);
-      }).catch(function() { setError("Gagal memuat data riwayat."); setLoading(false); });
-  }, []);
+      }).catch(function() { 
+        setError("Gagal memuat data riwayat."); 
+        setLoading(false); 
+      });
+  }, [token]);
+
+  var fmtDate = function(d) {
+    if (!d) return "-";
+    var parsedDate = new Date(!isNaN(d) ? Number(d) : d);
+    return parsedDate.toLocaleString("id-ID");
+  };
 
   var getAsset = function(id) {
     for (var i = 0; i < assets.length; i++) {
-      if (assets[i].id === id) return assets[i];
+      if (String(assets[i].id) === String(id)) return assets[i];
     }
     return null;
   };
@@ -1734,17 +1809,34 @@ function HistoryPage() {
     setDetailModal(asset);
     setDetailData({ maintenance: [], loading: true });
 
-    var mRes = await api.get("/maintenance/asset/" + assetId);
-    var mData = mRes.data || [];
-    
-    setDetailData({ maintenance: mData, loading: false });
+    var qryMaint = 'query { maintenanceByAsset(asset_id: "' + assetId + '") { id report_date description status action_date action_notes reporter } }';
+    try {
+      var res = await fetch("http://localhost:3000/graphql/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: qryMaint })
+      });
+      var data = await res.json();
+      var mData = data.data && data.data.maintenanceByAsset ? data.data.maintenanceByAsset : [];
+      setDetailData({ maintenance: mData, loading: false });
+    } catch  {
+      setDetailData({ maintenance: [], loading: false });
+    }
   };
 
-  var filtered = transfers.filter(function(t) {
+  var filtered = [];
+  for (var j = 0; j < transfers.length; j++) {
+    var t = transfers[j];
     var q = search.toLowerCase();
-    return !q || String(t.asset_id).includes(q) || getAssetName(t.asset_id).toLowerCase().includes(q)
-      || (t.from_ward && t.from_ward.toLowerCase().includes(q)) || (t.to_ward && t.to_ward.toLowerCase().includes(q));
-  });
+    var matchId = String(t.asset_id).toLowerCase().indexOf(q) > -1;
+    var matchName = getAssetName(t.asset_id).toLowerCase().indexOf(q) > -1;
+    var matchFrom = t.from_ward && t.from_ward.toLowerCase().indexOf(q) > -1;
+    var matchTo = t.to_ward && t.to_ward.toLowerCase().indexOf(q) > -1;
+    
+    if (!q || matchId || matchName || matchFrom || matchTo) {
+      filtered.push(t);
+    }
+  }
 
   var sColor = function(s) {
     return {
@@ -1813,11 +1905,11 @@ function HistoryPage() {
                       {detailData.maintenance.map(function(m) { return (
                         <tr key={m.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
                           <td style={{ padding: "12px 10px" }}>
-                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + m.report_date}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
+                            <div style={{ marginBottom: 4 }}><strong>{"Tanggal Lapor: " + fmtDate(m.report_date)}</strong> <span style={{ color: "#64748b" }}>{"(Oleh: " + m.reporter + ")"}</span></div>
                             <div style={{ marginBottom: 8 }}>{"Kendala: " + m.description}</div>
                             {m.action_date ? (
                               <div style={{ background: "#f0fdf4", borderLeft: "3px solid #22c55e", padding: 8, borderRadius: "0 6px 6px 0" }}>
-                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + m.action_date + ") - Status: " + m.status}</strong></div>
+                                <div style={{ marginBottom: 4 }}><strong>{"Tindakan Selesai (" + fmtDate(m.action_date) + ") - Status: " + m.status}</strong></div>
                                 <div>{"Keterangan: " + (m.action_notes || "Tidak ada catatan tambahan")}</div>
                               </div>
                             ) : (
@@ -1841,49 +1933,109 @@ function HistoryPage() {
   );
 }
 // ─── USERS PAGE ───────────────────────────────────────────────────────────────
-function UsersPage({ currentUser }) {
-  const [users, setUsers]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm]     = useState({ username: "", password: "", role: "staff" });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg]       = useState(null);
+function UsersPage(props) {
+  var currentUser = props.currentUser;
+  var [users, setUsers]   = useState([]);
+  var [loading, setLoading] = useState(true);
+  var [showForm, setShowForm] = useState(false);
+  var [form, setForm]     = useState({ username: "", password: "", role: "staff" });
+  var [saving, setSaving] = useState(false);
+  var [msg, setMsg]       = useState(null);
 
-  const load = useCallback(() => {
-    api.get("/auth/users").then((d) => { setUsers(d.data || []); setLoading(false); });
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  var token = localStorage.getItem("hams_token") || "";
 
-  const handleRegister = async (e) => {
-    e.preventDefault(); setSaving(true); setMsg(null);
-    const res = await api.post("/auth/register", form);
-    const d = await res.json(); setSaving(false);
-    if (res.ok) {
-      setMsg({ type: "success", text: `Akun "${form.username}" (${ROLE_LABEL[form.role]}) berhasil dibuat.` });
-      setForm({ username: "", password: "", role: "staff" }); load();
-    } else { setMsg({ type: "error", text: d.error }); }
+  var load = useCallback(function() {
+    var qry = 'query { users { id username role created_at } }';
+    fetch("http://localhost:3000/graphql/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: qry })
+    }).then(function(res) {
+      return res.json();
+    }).then(function(data) {
+      if (data.data && data.data.users) {
+        setUsers(data.data.users);
+      }
+      setLoading(false);
+    }).catch(function() {
+      setLoading(false);
+    });
+  }, [token]);
+
+  
+  useEffect(function() { load(); }, [load]);
+
+  var handleRegister = async function(e) {
+    e.preventDefault(); 
+    setSaving(true); 
+    setMsg(null);
+    var mut = 'mutation { register(username: "' + form.username + '", password: "' + form.password + '", role: "' + form.role + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      
+      if (data.errors) {
+        setMsg({ type: "error", text: data.errors[0].message });
+      } else {
+        var roleLabel = form.role === "admin" ? "Admin" : form.role === "staff" ? "Staff Logistik" : "Perawat";
+        setMsg({ type: "success", text: 'Akun "' + form.username + '" (' + roleLabel + ') berhasil dibuat.' });
+        setForm({ username: "", password: "", role: "staff" }); 
+        load();
+      }
+    } catch  {
+      setMsg({ type: "error", text: "Gagal terhubung ke server" });
+    }
+    setSaving(false);
   };
 
-  const handleDelete = async (id, username) => {
-    if (!confirm(`Hapus akun "${username}"?`)) return;
-    const { ok, data } = await api.del(`/auth/users/${id}`);
-    if (ok) load(); else alert("Gagal: " + data.error);
+  var handleDelete = async function(id, username) {
+    if (!confirm('Hapus akun "' + username + '"?')) return;
+    var mut = 'mutation { deleteUser(id: "' + id + '") { message } }';
+    
+    try {
+      var res = await fetch("http://localhost:3000/graphql/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ query: mut })
+      });
+      var data = await res.json();
+      
+      if (data.errors) {
+        alert("Gagal: " + data.errors[0].message);
+      } else {
+        load();
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
   };
 
-  const ROLE_BADGE = {
+  var ROLE_BADGE = {
     admin: { label: "Admin",          bg: "#fee2e2", color: "#991b1b" },
     staff: { label: "Staff Logistik", bg: "#dbeafe", color: "#1e40af" },
     nurse: { label: "Perawat",        bg: "#d1fae5", color: "#065f46" },
   };
-  const ACCESS = {
+  
+  var ACCESS = {
     admin: "Akses penuh",
     staff: "Semua fitur (kecuali Kelola Akun)",
     nurse: "Scanner QR saja",
   };
 
+  var fmtDate = function(d) {
+    if (!d) return "-";
+    var parsedDate = new Date(!isNaN(d) ? Number(d) : d);
+    return parsedDate.toLocaleDateString("id-ID");
+  };
+
   return (
     <PageShell title="Kelola Akun Pengguna">
-      <button style={{ ...btnPrimary, marginBottom: 16 }} onClick={() => setShowForm(!showForm)}>
+      <button style={{ ...btnPrimary, marginBottom: 16 }} onClick={function() { setShowForm(!showForm); }}>
         {showForm ? "✕ Tutup" : "+ Buat Akun Baru"}
       </button>
 
@@ -1894,17 +2046,17 @@ function UsersPage({ currentUser }) {
             <div>
               <label style={labelStyle}>Username</label>
               <input style={{ ...inputStyle, width: 160 }} value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+                onChange={function(e) { setForm({ username: e.target.value, password: form.password, role: form.role }); }} required />
             </div>
             <div>
               <label style={labelStyle}>Password</label>
               <input style={{ ...inputStyle, width: 160 }} type="password" value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={6} required />
+                onChange={function(e) { setForm({ username: form.username, password: e.target.value, role: form.role }); }} minLength={6} required />
             </div>
             <div>
               <label style={labelStyle}>Role</label>
               <select style={{ ...inputStyle, width: 165 }} value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                onChange={function(e) { setForm({ username: form.username, password: form.password, role: e.target.value }); }}>
                 <option value="staff">Staff Logistik</option>
                 <option value="nurse">Perawat</option>
                 <option value="admin">Admin</option>
@@ -1924,14 +2076,21 @@ function UsersPage({ currentUser }) {
         <div style={cardStyle}>
           <table style={tableStyle}>
             <thead>
-              <tr>{["ID", "Username", "Role", "Hak Akses", "Dibuat", "Aksi"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
+              <tr>
+                <th style={thStyle}>ID</th>
+                <th style={thStyle}>Username</th>
+                <th style={thStyle}>Role</th>
+                <th style={thStyle}>Hak Akses</th>
+                <th style={thStyle}>Dibuat</th>
+                <th style={thStyle}>Aksi</th>
+              </tr>
             </thead>
             <tbody>
-              {users.map((u) => {
-                const rb = ROLE_BADGE[u.role] || { label: u.role, bg: "#f3f4f6", color: "#374151" };
+              {users.map(function(u) {
+                var rb = ROLE_BADGE[u.role] || { label: u.role, bg: "#f3f4f6", color: "#374151" };
                 return (
                   <tr key={u.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>#{u.id}</td>
+                    <td style={tdStyle}>{"#" + u.id}</td>
                     <td style={tdStyle}>
                       <strong>{u.username}</strong>
                       {u.id === currentUser.id && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 6 }}>(Anda)</span>}
@@ -1940,11 +2099,11 @@ function UsersPage({ currentUser }) {
                       <span style={{ background: rb.bg, color: rb.color, borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{rb.label}</span>
                     </td>
                     <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{ACCESS[u.role] || "—"}</td>
-                    <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{new Date(u.created_at).toLocaleDateString("id-ID")}</td>
+                    <td style={{ ...tdStyle, fontSize: 12, color: "#64748b" }}>{fmtDate(u.created_at)}</td>
                     <td style={tdStyle}>
                       {u.id !== currentUser.id && (
                         <button style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b" }}
-                          onClick={() => handleDelete(u.id, u.username)}>🗑 Hapus</button>
+                          onClick={function() { handleDelete(u.id, u.username); }}>🗑 Hapus</button>
                       )}
                     </td>
                   </tr>
@@ -1969,9 +2128,6 @@ function PageShell({ title, children }) {
 }
 
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-
-const fmtDate = (d) => { try { return new Date(d).toLocaleString("id-ID"); } catch { return d; } };
 
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 };

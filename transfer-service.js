@@ -1,14 +1,13 @@
-const express = require('express');
-const mysql = require('mysql2');
-const { graphqlHTTP } = require('express-graphql');
-const { buildSchema } = require('graphql');
-const axios = require('axios');
+var express = require('express');
+var mysql = require('mysql2');
+var { graphqlHTTP } = require('express-graphql');
+var { buildSchema } = require('graphql');
+var axios = require('axios');
 require('dotenv').config();
 
-const app = express();
-// app.use(express.json());
+var app = express();
 
-const db = mysql.createPool({
+var db = mysql.createPool({
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
     user: process.env.DB_USER,
@@ -16,10 +15,7 @@ const db = mysql.createPool({
     database: process.env.DB_NAME
 }).promise();
 
-// ==========================================
-// GRAPHQL SCHEMA
-// ==========================================
-const schema = buildSchema(`
+var schema = buildSchema(`
     type Transfer {
         id: ID!
         asset_id: ID!
@@ -35,152 +31,157 @@ const schema = buildSchema(`
         transfer_id: ID
     }
 
-    type Query {
-        """Get the active (In Transit) transfer for a specific asset."""
-        activeTransfer(asset_id: ID!): Transfer
+    type Notif { 
+        id: ID 
+        tier: Int 
+        teks: String 
+    }
 
-        """Get the full transfer history, newest first (limit 500)."""
+    type Query {
+        activeTransfer(asset_id: ID!): Transfer
         transferHistory: [Transfer!]!
+        notifikasiList: [Notif]
     }
 
     type Mutation {
-        """
-        Initiate a new transfer. Validates the QR hash via the Asset Service
-        and marks the asset as In Transit.
-        """
         initiateTransfer(
             qr_hash: String!
             from_ward: String!
             to_ward: String!
         ): TransferResult!
 
-        """
-        Mark a transfer as received. Updates the asset to In Use
-        at the destination ward.
-        """
         receiveTransfer(id: ID!): TransferResult!
 
-        """
-        Cancel an active transfer and revert the asset to Available
-        at its origin ward.
-        """
         cancelTransfer(asset_id: ID!): TransferResult!
     }
 `);
 
-// ==========================================
-// RESOLVERS
-// ==========================================
-const rootValue = {
-    // ----- QUERIES -----
-
-    activeTransfer: async ({ asset_id }) => {
-        const [rows] = await db.query(
-            "SELECT * FROM transfers WHERE asset_id = ? AND transfer_status = 'In Transit'",
-            [asset_id]
-        );
+var rootValue = {
+    activeTransfer: async function(args) {
+        var asset_id = args.asset_id;
+        var queryStr = "SELECT * FROM transfers WHERE asset_id = ? AND transfer_status = 'In Transit'";
+        var result = await db.query(queryStr, [asset_id]);
+        var rows = result[0];
         if (rows.length === 0) throw new Error('No active transfer found');
         return rows[0];
     },
 
-    transferHistory: async () => {
-        const [rows] = await db.query(
-            'SELECT * FROM transfers ORDER BY requested_at DESC LIMIT 500'
-        );
+    transferHistory: async function() {
+        var result = await db.query('SELECT * FROM transfers ORDER BY requested_at DESC LIMIT 500');
+        var rows = result[0];
         return rows;
     },
 
-    // ----- MUTATIONS -----
+    initiateTransfer: async function(args) {
+        var qr_hash = args.qr_hash;
+        var from_ward = args.from_ward;
+        var to_ward = args.to_ward;
 
-    initiateTransfer: async ({ qr_hash, from_ward, to_ward }) => {
-        // Validate QR via Asset Service GraphQL
-        const response = await axios.post('http://localhost:3001/graphql', {
-            query: `{ assetByQR(hash: "${qr_hash}") { id status } }`
-        });
+        var q = '{ assetByQR(hash: "' + qr_hash + '") { id name status } }';
+        var response = await axios.post('http://asset:3001/graphql', { query: q });
 
         if (response.data.errors) {
-            const msg = response.data.errors[0].message;
-            throw new Error(msg.includes('not found') ? 'Invalid QR Code. Asset not found.' : msg);
+            var msg = response.data.errors[0].message;
+            if (msg.indexOf('not found') !== -1) {
+                throw new Error('Invalid QR Code. Asset not found.');
+            } else {
+                throw new Error(msg);
+            }
         }
 
-        const asset = response.data.data.assetByQR;
+        var asset = response.data.data.assetByQR;
 
         if (asset.status !== 'Available') {
             throw new Error('Asset is currently not available for transfer');
         }
 
-        const [result] = await db.query(
-            "INSERT INTO transfers (asset_id, from_ward, to_ward, transfer_status) VALUES (?, ?, ?, 'In Transit')",
-            [asset.id, from_ward, to_ward]
-        );
+        var insertStr = "INSERT INTO transfers (asset_id, from_ward, to_ward, transfer_status) VALUES (?, ?, ?, 'In Transit')";
+        var resultDb = await db.query(insertStr, [asset.id, from_ward, to_ward]);
+        var result = resultDb[0];
 
-        await axios.post('http://localhost:3001/graphql', {
-            query: `mutation { updateAssetLocation(id: "${asset.id}", current_ward: "${from_ward}", status: "In Transit") { message } }`
-        });
+        var mut = 'mutation { updateAssetLocation(id: "' + asset.id + '", current_ward: "' + from_ward + '", status: "In Transit") { message } }';
+        await axios.post('http://asset:3001/graphql', { query: mut });
+
+        var pesan = "Aset " + asset.name + " dipindah dari " + from_ward + " ke " + to_ward;
+        await db.query("INSERT INTO notifikasi (tier, teks) VALUES (2, ?)", [pesan]);
 
         return { message: 'Transfer initiated successfully', transfer_id: result.insertId };
     },
 
-    receiveTransfer: async ({ id }) => {
-        // Mark transfer complete
-        await db.query(
-            "UPDATE transfers SET transfer_status = 'Completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-            [id]
-        );
+    receiveTransfer: async function(args) {
+        var id = args.id;
+        var updateStr = "UPDATE transfers SET transfer_status = 'Completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?";
+        await db.query(updateStr, [id]);
 
-        // Fetch transfer details
-        const [rows] = await db.query('SELECT * FROM transfers WHERE id = ?', [id]);
-        const transfer = rows[0];
+        var selectStr = 'SELECT * FROM transfers WHERE id = ?';
+        var resultDb = await db.query(selectStr, [id]);
+        var transfer = resultDb[0][0];
 
-        // Update asset location and status via Asset Service GraphQL
-        await axios.post('http://localhost:3001/graphql', {
-            query: `
-                mutation {
-                    updateAssetLocation(id: "${transfer.asset_id}", current_ward: "${transfer.to_ward}", status: "In Use") {
-                        message
-                    }
-                }
-            `
-        });
+        var mut = 'mutation { updateAssetLocation(id: "' + transfer.asset_id + '", current_ward: "' + transfer.to_ward + '", status: "In Use") { message } }';
+        await axios.post('http://asset:3001/graphql', { query: mut });
+
+        var qAssets = '{ assets { id name } }';
+        var resAssets = await axios.post('http://asset:3001/graphql', { query: qAssets });
+        var allAssets = resAssets.data.data.assets;
+        var assetName = "ID " + transfer.asset_id;
+        for (var i = 0; i < allAssets.length; i++) {
+            if (String(allAssets[i].id) === String(transfer.asset_id)) {
+                assetName = allAssets[i].name;
+                break;
+            }
+        }
+
+        var pesan = "Aset " + assetName + " telah diterima di " + transfer.to_ward;
+        await db.query("INSERT INTO notifikasi (tier, teks) VALUES (2, ?)", [pesan]);
 
         return { message: 'Asset successfully received and is now In Use.' };
     },
 
-    cancelTransfer: async ({ asset_id }) => {
-        const [rows] = await db.query(
-            "SELECT * FROM transfers WHERE asset_id = ? AND transfer_status = 'In Transit'",
-            [asset_id]
-        );
+    cancelTransfer: async function(args) {
+        var asset_id = args.asset_id;
+        var selectStr = "SELECT * FROM transfers WHERE asset_id = ? AND transfer_status = 'In Transit'";
+        var resultDb = await db.query(selectStr, [asset_id]);
+        var rows = resultDb[0];
 
         if (rows.length === 0) throw new Error('No active transfer found to cancel.');
 
-        const transfer = rows[0];
+        var transfer = rows[0];
 
-        // Delete the transfer record
         await db.query('DELETE FROM transfers WHERE id = ?', [transfer.id]);
 
-        // Revert asset to Available at origin ward via Asset Service GraphQL
-        await axios.post('http://localhost:3001/graphql', {
-            query: `
-                mutation {
-                    updateAssetLocation(id: "${transfer.asset_id}", current_ward: "${transfer.from_ward}", status: "Available") {
-                        message
-                    }
-                }
-            `
-        });
+        var mut = 'mutation { updateAssetLocation(id: "' + transfer.asset_id + '", current_ward: "' + transfer.from_ward + '", status: "Available") { message } }';
+        await axios.post('http://asset:3001/graphql', { query: mut });
+
+        var qAssets = '{ assets { id name } }';
+        var resAssets = await axios.post('http://asset:3001/graphql', { query: qAssets });
+        var allAssets = resAssets.data.data.assets;
+        var assetName = "ID " + transfer.asset_id;
+        for (var j = 0; j < allAssets.length; j++) {
+            if (String(allAssets[j].id) === String(transfer.asset_id)) {
+                assetName = allAssets[j].name;
+                break;
+            }
+        }
+
+        var pesan = "Transfer aset " + assetName + " dibatalkan, kembali ke " + transfer.from_ward;
+        await db.query("INSERT INTO notifikasi (tier, teks) VALUES (2, ?)", [pesan]);
 
         return { message: 'Transit cancelled successfully.' };
+    },
+
+    notifikasiList: async function() {
+        var result = await db.query("SELECT * FROM notifikasi ORDER BY id DESC");
+        var rows = result[0];
+        return rows;
     }
 };
 
-// ==========================================
-// GRAPHQL ENDPOINT
-// ==========================================
 app.use('/graphql', graphqlHTTP({
-    schema,
-    rootValue,
+    schema: schema,
+    rootValue: rootValue,
     graphiql: true
 }));
 
-app.listen(3003, () => console.log('🚚 Transfer Service (GraphQL) running on port 3003 → http://localhost:3003/graphql'));
+app.listen(3003, function() {
+    console.log('🚚 Transfer Service (GraphQL) running on port 3003 → http://localhost:3003/graphql');
+});

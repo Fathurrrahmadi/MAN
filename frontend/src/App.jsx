@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react"; 
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
-
-
+  var ToastKecil = function(props) {
+  if (!props.muncul) return null;
+  var isError = props.pesan.toLowerCase().indexOf("gagal") !== -1 || props.pesan.toLowerCase().indexOf("habis") !== -1 || props.pesan.toLowerCase().indexOf("batal") !== -1;
+  return (
+    <div style={{ position: "fixed", bottom: "15px", left: "15px", backgroundColor: isError ? "#ef4444" : "#10b981", color: "white", padding: "6px 12px", borderRadius: "4px", fontSize: "12px", zIndex: 9999 }}>
+      {isError ? "⚠️ " : "✅ "} {props.pesan}
+    </div>
+  );
+};
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const IDLE_TIMEOUT_MS = 8 * 60 * 1000;
 
@@ -178,6 +186,7 @@ const NAV_ITEMS = [
   { key: "maintenance", label: "Pemeliharaan", icon: "🔧", roles: ["admin", "staff"] },
   { key: "history",     label: "Riwayat",      icon: "📋", roles: ["admin", "staff"] },
   { key: "users",       label: "Kelola Akun",  icon: "👥", roles: ["admin"] },
+
 ];
 
 const ROLE_LABEL = { admin: "Admin", staff: "Staff Logistik", nurse: "Perawat" };
@@ -247,7 +256,17 @@ function MainLayout({ user, logout, children, activePage, setActivePage }) {
         </div>
       </aside>
 
-      <main style={{ flex: 1, overflow: "auto", minWidth: 0 }}>{children}</main>
+      <main style={{ flex: 1, overflow: "auto", minWidth: 0, position: "relative" }}>
+        
+        {/* Tombol Lonceng Kanan Atas */}
+        <div style={{ position: "absolute", top: "20px", right: "30px", zIndex: 999 }}>
+          <button onClick={() => setActivePage("notifikasi")} style={{ fontSize: "25px", background: "transparent", border: "none", cursor: "pointer" }}>
+            🔔
+          </button>
+        </div>
+
+        {children}
+      </main>
     </div>
   );
 }
@@ -449,6 +468,7 @@ function AssetsPage() {
       types.push(assets[i].type);
     }
   }
+  
 
   var filtered = [];
   for (var j = 0; j < assets.length; j++) {
@@ -470,6 +490,17 @@ function AssetsPage() {
     if (!grouped[cat][sub]) grouped[cat][sub] = [];
     grouped[cat][sub].push(ast);
   }
+
+  // --- LOGIC CHART ---
+  var COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+
+  var dataKategori = types.map(function(t) {
+    return { name: t, value: assets.filter(function(a) { return a.type === t; }).length };
+  });
+
+  var dataRuangan = wards.map(function(w) {
+    return { name: w.ward_name, value: assets.filter(function(a) { return a.current_ward === w.ward_name; }).length };
+  }).filter(function(d) { return d.value > 0; });
 
   var handleAdd = async function(e) {
     e.preventDefault(); 
@@ -590,6 +621,31 @@ function AssetsPage() {
 
   return (
     <PageShell title="Manajemen Aset">
+      <div style={{ display: "flex", gap: "20px", marginBottom: "20px" }}>
+        <div style={{ flex: 1, background: "white", padding: 15, borderRadius: 8, border: "1px solid #e2e8f0" }}>
+          <h4 style={{ textAlign: "center", margin: "0 0 10px", fontSize: 14 }}>Aset per Kategori</h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={dataKategori} innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value">
+                {dataKategori.map(function(entry, index) { return <Cell key={index} fill={COLORS[index % COLORS.length]} />; })}
+              </Pie>
+              <Tooltip /> <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={{ flex: 1, background: "white", padding: 15, borderRadius: 8, border: "1px solid #e2e8f0" }}>
+          <h4 style={{ textAlign: "center", margin: "0 0 10px", fontSize: 14 }}>Aset per Ruangan</h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={dataRuangan} innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value">
+                {dataRuangan.map(function(entry, index) { return <Cell key={index} fill={COLORS[index % COLORS.length]} />; })}
+              </Pie>
+              <Tooltip /> <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <input style={{ ...inputStyle, width: 240 }}
           placeholder="🔍 Cari ID, nama, ruangan..."
@@ -1012,7 +1068,6 @@ function TransferPage(props) {
   var [assets, setAssets] = useState([]);
   var [wards, setWards]   = useState([]);
   var [form, setForm]     = useState({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
-  var [msg, setMsg]       = useState(null);
   var [loading, setLoading] = useState(false);
   
   var canEdit = userRole === "admin" || userRole === "staff";
@@ -1060,11 +1115,10 @@ function TransferPage(props) {
   var handleTransfer = async function(e) {
     e.preventDefault();
     if (form.from_ward === form.to_ward) {
-      setMsg({ type: "error", text: "Ruangan tujuan tidak boleh sama dengan ruangan asal." }); 
+      props.panggilAlert("Ruangan tujuan tidak boleh sama dengan ruangan asal."); 
       return;
     }
     setLoading(true); 
-    setMsg(null);
 
     var mut = 'mutation { initiateTransfer(qr_hash: "' + form.qr_hash + '", from_ward: "' + form.from_ward + '", to_ward: "' + form.to_ward + '") { message } }';
 
@@ -1077,14 +1131,14 @@ function TransferPage(props) {
       var data = await res.json();
       
       if (data.errors) {
-        setMsg({ type: "error", text: data.errors[0].message });
+        props.panggilAlert(data.errors[0].message);
       } else {
-        setMsg({ type: "success", text: "Transfer berhasil diinisiasi! Aset sekarang 'In Transit'." });
+        props.panggilAlert("Transfer berhasil diinisiasi! Aset sekarang 'In Transit'.");
         setForm({ assetId: "", qr_hash: "", from_ward: "", to_ward: "" });
         loadData();
       }
     } catch (err) {
-      setMsg({ type: "error", text: "Gagal melakukan transfer: " + err.message });
+      props.panggilAlert("Gagal melakukan transfer: " + err.message);
     }
     setLoading(false);
   };
@@ -1103,13 +1157,13 @@ function TransferPage(props) {
       var data = await res.json();
 
       if (data.errors) {
-        setMsg({ type: "error", text: "Gagal membatalkan: " + data.errors[0].message });
+        props.panggilAlert("Gagal membatalkan: " + data.errors[0].message);
       } else {
-        setMsg({ type: "success", text: 'Transit untuk "' + name + '" dibatalkan. Aset kembali Available.' });
+        props.panggilAlert('Transit untuk "' + name + '" dibatalkan. Aset kembali Available.');
         loadData();
       }
     } catch (err) {
-      setMsg({ type: "error", text: "Gagal membatalkan: " + err.message });
+      props.panggilAlert("Gagal membatalkan: " + err.message);
     }
   };
 
@@ -1145,13 +1199,6 @@ function TransferPage(props) {
               {loading ? "..." : "🚚 Kirim"}
             </button>
           </form>
-          {msg && (
-            <div style={{
-              marginTop: 12, padding: "10px 14px", borderRadius: 8, fontSize: 13,
-              background: msg.type === "success" ? "#d1fae5" : "#fee2e2",
-              color:      msg.type === "success" ? "#065f46" : "#991b1b",
-            }}>{msg.text}</div>
-          )}
         </div>
       )}
 
@@ -1932,6 +1979,52 @@ function HistoryPage() {
     </PageShell>
   );
 }
+
+
+// ---  NOTIFIKASI & TOAST ALERT ---
+function NotifikasiPage() {
+  var [notifs, setNotifs] = useState([]);
+  var token = localStorage.getItem("hams_token") || "";
+
+  useEffect(function() {
+    fetch("http://localhost:3000/graphql/transfers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ query: "{ notifikasiList { id tier teks } }" })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(result) {
+      if (result.data && result.data.notifikasiList) {
+        setNotifs(result.data.notifikasiList);
+      }
+    });
+  }, [token]);
+
+  return (
+    <PageShell title="Daftar Notifikasi">
+      <div style={{ background: "#fff", padding: 20, borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+        {notifs.length === 0 ? (
+          <p style={{ color: "#64748b" }}>Belum ada aktivitas.</p>
+        ) : (
+          notifs.map(function(n) {
+            var isImportant = n.tier === 1;
+            var borderColor = isImportant ? "#ef4444" : "#3b82f6";
+            var textColor = isImportant ? "#991b1b" : "#1e40af";
+            var bgItem = isImportant ? "#fef2f2" : "#eff6ff";
+            
+            return (
+              <div key={n.id} style={{ padding: "12px 16px", borderLeft: "4px solid " + borderColor, backgroundColor: bgItem, color: textColor, marginBottom: 12, borderRadius: "0 6px 6px 0", fontSize: 14 }}>
+                {n.teks}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </PageShell>
+  );
+}
+
+
 // ─── USERS PAGE ───────────────────────────────────────────────────────────────
 function UsersPage(props) {
   var currentUser = props.currentUser;
@@ -2129,6 +2222,7 @@ function PageShell({ title, children }) {
 
 
 
+
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 };
 const inputStyle  = { width: "100%", padding: "10px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", boxSizing: "border-box" };
@@ -2144,27 +2238,59 @@ const btnSmall    = { padding: "4px 10px", background: "#f1f5f9", color: "#33415
 export default function App() {
   const { user, login, logout } = useAuth();
   const [activePage, setActivePage] = useState("dashboard");
+  const [munculToast, setMunculToast] = useState(false);
+  const [pesanToast, setPesanToast] = useState("");
 
+
+  useEffect(function() {
+  if (munculToast) {
+    console.log("Toast muncul, timer dimulai..."); // Cek ini di Inspect > Console browser
+    var timer = setTimeout(function() {
+      console.log("Timer selesai, menutup toast...");
+      setMunculToast(false);
+    }, 3000);
+    return function() { clearTimeout(timer); };
+  }
+}, [munculToast]);
+
+  // --- STATE NOTIF GLOBAL ---
+  const [notifGlobal, setNotifGlobal] = useState([
+    { id: 1, tier: 1, teks: "Stok kategori Electronic habis (0)!" },
+    { id: 2, tier: 2, teks: "Patient Monitor A1 dipindah ke ICU" }
+  ]); 
+
+
+  // Fungsi buat nambahin log dari halaman mana aja
+  
   if (!user) return <LoginPage onLogin={login} />;
 
   // Nurse → scanner-only portal, no sidebar
   if (user.role === "nurse") return <NursePortal user={user} logout={logout} />;
 
+
+  const panggilAlert = (pesan) => {
+    setPesanToast(pesan);
+    setMunculToast(true);
+  };
+
+
+  
   const pages = {
-    dashboard:   <DashboardPage />,
+    dashboard:   <DashboardPage panggilAlert={panggilAlert}/>,
     assets:      <AssetsPage userRole={user.role} />,
     wards:       <WardsPage />,
-    transfers:   <TransferPage userRole={user.role} />,
+    transfers:   <TransferPage userRole={user.role} panggilAlert={panggilAlert} />,
     scanner:     <ScannerPage userRole={user.role} />,
     maintenance: <MaintenancePage user={user} />,
     history:     <HistoryPage />,
+    notifikasi:  <NotifikasiPage notif={notifGlobal} setNotif={setNotifGlobal} />,
     users:       user.role === "admin" ? <UsersPage currentUser={user} /> : null,
   };
 
   return (
     <MainLayout user={user} logout={logout} activePage={activePage} setActivePage={setActivePage}>
       {pages[activePage] || <PageShell title="Halaman tidak ditemukan" />}
+      <ToastKecil pesan={pesanToast} muncul={munculToast} tutup={function() { setMunculToast(false); }} />
     </MainLayout>
   );
 }
-

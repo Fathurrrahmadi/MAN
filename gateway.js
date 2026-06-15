@@ -20,28 +20,28 @@ console.log("Starting API Gateway (GraphQL)...");
 
 // Proxy GraphQL requests to Auth Service
 app.use('/graphql/auth', createProxyMiddleware({
-    target: 'http://127.0.0.1:3004',
+    target: 'http://auth:3004',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Asset Service (also handles /maintenance)
 app.use('/graphql/assets', createProxyMiddleware({
-    target: 'http://127.0.0.1:3001',
+    target: 'http://asset:3001',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Ward Service
 app.use('/graphql/wards', createProxyMiddleware({
-    target: 'http://127.0.0.1:3002',
+    target: 'http://ward:3002',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));
 
 // Proxy GraphQL requests to Transfer Service
 app.use('/graphql/transfers', createProxyMiddleware({
-    target: 'http://127.0.0.1:3003',
+    target: 'http://transfer:3003',
     changeOrigin: true,
     pathRewrite: () => '/graphql'
 }));

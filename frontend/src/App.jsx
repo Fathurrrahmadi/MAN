@@ -1565,7 +1565,7 @@ function ScannerPage() {
   );
 }
 // ─── MAINTENANCE PAGE ─────────────────────────────────────────────────────────
-function MaintenancePage() {
+function MaintenancePage({ panggilAlert }) {
   var [reports, setReports] = useState([]);
   var [assets, setAssets] = useState([]);
   var [filterStatus, setFilterStatus] = useState("");
@@ -1621,6 +1621,7 @@ function MaintenancePage() {
       if (data.errors) {
         alert("Gagal: " + data.errors[0].message);
       } else {
+        panggilAlert("Data tindak lanjut berhasil disimpan!");
         setModal(null);
         load();
       }
@@ -2281,7 +2282,7 @@ export default function App() {
     wards:       <WardsPage />,
     transfers:   <TransferPage userRole={user.role} panggilAlert={panggilAlert} />,
     scanner:     <ScannerPage userRole={user.role} />,
-    maintenance: <MaintenancePage user={user} />,
+    maintenance: <MaintenancePage user={user} panggilAlert={panggilAlert} />,
     history:     <HistoryPage />,
     notifikasi:  <NotifikasiPage notif={notifGlobal} setNotif={setNotifGlobal} />,
     users:       user.role === "admin" ? <UsersPage currentUser={user} /> : null,

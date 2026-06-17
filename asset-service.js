@@ -217,7 +217,11 @@ const rootValue = {
         return { message: 'Report created', id: result.insertId };
     },
 
-    addMaintenanceAction: async ({ report_id, start_date, estimated_end_date, action_date, vendor, cost, duration_days, notes, status }) => {
+  addMaintenanceAction: async ({ report_id, start_date, estimated_end_date, action_date, vendor, cost, duration_days, notes, status }) => {
+        let finalActionDate = action_date;
+        if (action_date && !isNaN(action_date)) {
+            finalActionDate = new Date(Number(action_date)).toISOString().split('T')[0];
+        }
         await db.query(
             `INSERT INTO maintenance_actions (report_id, start_date, estimated_end_date, action_date, vendor, cost, duration_days, notes, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -225,7 +229,7 @@ const rootValue = {
                 report_id,
                 start_date || null,
                 estimated_end_date || null,
-                action_date || null,
+                finalActionDate || null, // <-- Cukup ini saja yang dipakai untuk action_date
                 vendor || '',
                 cost || 0,
                 duration_days || 0,
@@ -237,6 +241,15 @@ const rootValue = {
             'UPDATE maintenance_reports SET status = ? WHERE id = ?',
             [status || 'Diperbaiki', report_id]
         );
+
+        var [rep] = await db.query("SELECT asset_name FROM maintenance_reports WHERE id = ?", [report_id]);
+        var nama = rep.length > 0 ? rep[0].asset_name : "Aset";
+
+        await db.query(
+            "INSERT INTO notifikasi (tier, teks) VALUES (?, ?)",
+            [2, "Pemeliharaan " + (nama || "Aset") + " (#" + report_id + ") menjadi: " + (status || "Diperbaiki")]        );  
+
+        
         return { message: 'Action logged and report updated.' };
     }
 };

@@ -209,11 +209,25 @@ const rootValue = {
         if (!asset_id || !description || !report_date) {
             throw new Error('asset_id, report_date, and description are required.');
         }
+
+        // ─── KONVERSI TANGGAL DARI TIMESTAMP KE YYYY-MM-DD ───
+        let finalReportDate = report_date;
+        if (report_date && !isNaN(report_date)) {
+            finalReportDate = new Date(Number(report_date)).toISOString().split('T')[0];
+        }
+
         const [result] = await db.query(
             `INSERT INTO maintenance_reports (asset_id, asset_name, type, report_date, description, reporter)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [asset_id, asset_name || '', type || '', report_date, description, reporter || '']
+            [asset_id, asset_name || '', type || '', finalReportDate, description, reporter || '']
         );
+
+        await db.query(
+            "INSERT INTO notifikasi (tier, teks) VALUES (?, ?)",
+            [2, "Laporan kerusakan baru untuk " + (asset_name || "Aset") + " (#" + asset_id + ")"]
+        );
+
+
         return { message: 'Report created', id: result.insertId };
     },
 
@@ -250,7 +264,8 @@ const rootValue = {
             [2, "Pemeliharaan " + (nama || "Aset") + " (#" + report_id + ") menjadi: " + (status || "Diperbaiki")]        );  
 
         
-        return { message: 'Action logged and report updated.' };
+        return { message: 'Action logged and report updated.' };root
+        
     }
 };
 

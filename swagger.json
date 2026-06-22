@@ -1,29 +1,73 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Hospital Asset Transfer API",
-    "description": "Microservices architecture for tracking and transferring hospital assets between wards.",
-    "version": "1.0.0"
+    "title": "Hospital Asset Management System (HAMS) API",
+    "description": "Microservices architecture for tracking and transferring hospital assets between wards. Each service exposes its own GraphQL endpoint and owns a dedicated MySQL database — there is no shared database between services (database-per-service pattern). The API Gateway proxies GraphQL requests to the correct service based on URL path; it does not touch any database itself. Cross-service communication (e.g. asset-service logging a notification, transfer-service validating an asset) happens by calling the owning service's GraphQL endpoint, never by reaching into another service's database directly.",
+    "version": "2.0.0"
   },
   "servers": [
     {
       "url": "http://localhost:3000",
-      "description": "API Gateway"
+      "description": "API Gateway — routes /graphql/{service} to the corresponding microservice"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "auth-service — owns auth_db (users table). Handles registration, login, JWT issuance and verification."
+    },
+    {
+      "name": "Assets",
+      "description": "asset-service — owns asset_db (assets, maintenance_reports, maintenance_actions tables). Handles asset inventory, QR codes, and maintenance/damage reports."
+    },
+    {
+      "name": "Wards",
+      "description": "ward-service — owns ward_db (wards table). Handles the list of hospital wards/locations."
+    },
+    {
+      "name": "Transfers",
+      "description": "transfer-service — owns transfer_db (transfers, notifikasi tables). Handles inter-ward asset transfers and is the single source of truth for notifications; other services call its addNotification mutation rather than writing notifications directly."
     }
   ],
   "paths": {
-    "/api/assets": {
-      "get": {
-        "summary": "Get all assets",
-        "description": "Retrieves the master inventory of all hospital assets.",
-        "responses": {
-          "200": {
-            "description": "Successful retrieval"
+    "/graphql/auth": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Auth Service GraphQL endpoint",
+        "description": "Available operations:\n\nQueries:\n- verifyToken — validates the JWT in the Authorization header\n- users — list all users (admin only)\n\nMutations:\n- register(username, password, role) — create a user account\n- login(username, password) — returns a JWT token\n- deleteUser(id) — admin only, cannot delete own account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "variables": { "type": "object" }
+                }
+              },
+              "example": {
+                "query": "mutation Login($u: String!, $p: String!) { login(username: $u, password: $p) { message token user { id username role } } }",
+                "variables": { "u": "admin", "p": "admin123" }
+              }
+            }
           }
+        },
+        "responses": {
+          "200": { "description": "GraphQL response (200 is returned even for resolver-level errors; check the `errors` field)" }
         }
       },
+      "get": {
+        "tags": ["Auth"],
+        "summary": "GraphiQL playground (browser only)",
+        "responses": { "200": { "description": "Interactive GraphiQL UI" } }
+      }
+    },
+    "/graphql/assets": {
       "post": {
-        "summary": "Register a new asset",
+        "tags": ["Assets"],
+        "summary": "Asset Service GraphQL endpoint (also handles maintenance reports/actions)",
+        "description": "Available operations:\n\nQueries:\n- assets — full asset inventory\n- assetByQR(hash) — look up one asset by QR hash\n- maintenanceReports — all maintenance reports, newest first\n- maintenanceByAsset(asset_id) — maintenance history for one asset\n- generateQR(hash) — base64 QR code image\n\nMutations:\n- addAsset(name, type, sub_category, current_ward, qr_hash)\n- updateAssetLocation(id, current_ward, status)\n- updateWardName(id, ward_name) — cascades the new name to all assets currently in that ward\n- deleteAsset(id) — blocked if status is In Use or In Transit\n- createMaintenanceReport(asset_id, asset_name, type, report_date, description, reporter) — also calls transfer-service's addNotification\n- addMaintenanceAction(report_id, start_date, estimated_end_date, action_date, vendor, cost, duration_days, notes, status) — also calls transfer-service's addNotification",
         "requestBody": {
           "required": true,
           "content": {
@@ -31,51 +75,32 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string", "example": "Oxygen Tank O2-1" },
-                  "type": { "type": "string", "example": "Supply" },
-                  "current_ward": { "type": "string", "example": "ER" },
-                  "qr_hash": { "type": "string", "example": "qr_hash_11111" }
+                  "query": { "type": "string" },
+                  "variables": { "type": "object" }
                 }
+              },
+              "example": {
+                "query": "mutation AddAsset($name: String!, $ward: String!, $hash: String!) { addAsset(name: $name, current_ward: $ward, qr_hash: $hash) { message } }",
+                "variables": { "name": "Oxygen Tank O2-1", "ward": "ER", "hash": "qr_hash_11111" }
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "Asset registered successfully" }
+          "200": { "description": "GraphQL response (200 is returned even for resolver-level errors; check the `errors` field)" }
         }
-      }
-    },
-    "/api/assets/qr/{hash}": {
+      },
       "get": {
-        "summary": "Validate asset by QR hash",
-        "parameters": [
-          {
-            "name": "hash",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" },
-            "example": "qr_hash_12345"
-          }
-        ],
-        "responses": {
-          "200": { "description": "Asset found and valid" },
-          "404": { "description": "Asset not found" }
-        }
+        "tags": ["Assets"],
+        "summary": "GraphiQL playground (browser only)",
+        "responses": { "200": { "description": "Interactive GraphiQL UI" } }
       }
     },
-    "/api/wards": {
-      "get": {
-        "summary": "Get ward inventory list",
-        "description": "Fetches a list of all hospital wards and their current asset capacity.",
-        "responses": {
-          "200": { "description": "Successful retrieval" }
-        }
-      }
-    },
-    "/api/transfers": {
+    "/graphql/wards": {
       "post": {
-        "summary": "Initiate an asset transfer",
-        "description": "Communicates dynamically with the Asset Service to validate availability before logging the transfer.",
+        "tags": ["Wards"],
+        "summary": "Ward Service GraphQL endpoint",
+        "description": "Available operations:\n\nQueries:\n- wards — full ward list\n\nMutations:\n- addWard(ward_name) — fails with a clear error if the ward already exists\n- deleteWard(id)",
         "requestBody": {
           "required": true,
           "content": {
@@ -83,36 +108,57 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "qr_hash": { "type": "string", "example": "qr_hash_67890" },
-                  "from_ward": { "type": "string", "example": "ER" },
-                  "to_ward": { "type": "string", "example": "ICU" }
+                  "query": { "type": "string" },
+                  "variables": { "type": "object" }
                 }
+              },
+              "example": {
+                "query": "query { wards { id ward_name asset_count } }"
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "Transfer initiated successfully" },
-          "400": { "description": "Asset is currently not available for transfer" }
+          "200": { "description": "GraphQL response (200 is returned even for resolver-level errors; check the `errors` field)" }
         }
+      },
+      "get": {
+        "tags": ["Wards"],
+        "summary": "GraphiQL playground (browser only)",
+        "responses": { "200": { "description": "Interactive GraphiQL UI" } }
       }
     },
-    "/api/transfers/receive/{id}": {
-      "put": {
-        "summary": "Confirm asset receipt",
-        "description": "Marks the transfer as completed and updates the asset's location in the Asset Service.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "integer" },
-            "example": 1
+    "/graphql/transfers": {
+      "post": {
+        "tags": ["Transfers"],
+        "summary": "Transfer Service GraphQL endpoint",
+        "description": "Available operations:\n\nQueries:\n- activeTransfer(asset_id) — the in-progress transfer for an asset, if any\n- transferHistory — full transfer log, newest first\n- notifikasiList — all logged notifications, newest first (used by the frontend bell icon)\n\nMutations:\n- initiateTransfer(qr_hash, from_ward, to_ward) — validates the asset via asset-service's GraphQL endpoint before logging the transfer\n- receiveTransfer(id) — marks a transfer Completed and updates the asset's location via asset-service\n- cancelTransfer(asset_id) — reverts an In Transit transfer\n- addNotification(tier, teks) — single write path for the notifikasi table; called by other services instead of them writing to it directly",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "variables": { "type": "object" }
+                }
+              },
+              "example": {
+                "query": "mutation Initiate($hash: String!, $from: String!, $to: String!) { initiateTransfer(qr_hash: $hash, from_ward: $from, to_ward: $to) { message transfer_id } }",
+                "variables": { "hash": "qr_hash_67890", "from": "ER", "to": "ICU" }
+              }
+            }
           }
-        ],
+        },
         "responses": {
-          "200": { "description": "Asset successfully received and inventory updated" }
+          "200": { "description": "GraphQL response (200 is returned even for resolver-level errors; check the `errors` field). A 400-style failure (e.g. asset not available) surfaces in `errors[0].message`." }
         }
+      },
+      "get": {
+        "tags": ["Transfers"],
+        "summary": "GraphiQL playground (browser only)",
+        "responses": { "200": { "description": "Interactive GraphiQL UI" } }
       }
     }
   }

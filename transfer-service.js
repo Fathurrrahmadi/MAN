@@ -37,6 +37,11 @@ var schema = buildSchema(`
         teks: String 
     }
 
+    type NotifResult {
+        message: String!
+        id: ID
+    }
+
     type Query {
         activeTransfer(asset_id: ID!): Transfer
         transferHistory: [Transfer!]!
@@ -53,6 +58,14 @@ var schema = buildSchema(`
         receiveTransfer(id: ID!): TransferResult!
 
         cancelTransfer(asset_id: ID!): TransferResult!
+
+        """
+        Log a notification. This is the single write path for the
+        notifikasi table — other services (e.g. asset-service) call
+        this over GraphQL instead of writing to notifikasi directly,
+        since notifikasi now lives only in transfer-db.
+        """
+        addNotification(tier: Int!, teks: String!): NotifResult!
     }
 `);
 
@@ -173,6 +186,14 @@ var rootValue = {
         var result = await db.query("SELECT * FROM notifikasi ORDER BY id DESC");
         var rows = result[0];
         return rows;
+    },
+
+    addNotification: async function(args) {
+        var tier = args.tier;
+        var teks = args.teks;
+        var resultDb = await db.query("INSERT INTO notifikasi (tier, teks) VALUES (?, ?)", [tier, teks]);
+        var result = resultDb[0];
+        return { message: 'Notification logged', id: result.insertId };
     }
 };
 

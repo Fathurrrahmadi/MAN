@@ -1,15 +1,55 @@
 version: "3.8"
 services:
-  db:
+  # ============================================================
+  # DATABASES — one per service, each with its own volume + init script
+  # ============================================================
+  asset-db:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: hams_db
+      MYSQL_DATABASE: asset_db
     ports:
       - "3306:3306"
     volumes:
-      - ./db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/asset-db-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - asset_db_data:/var/lib/mysql
 
+  ward-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ward_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./db/ward-db-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ward_db_data:/var/lib/mysql
+
+  transfer-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: transfer_db
+    ports:
+      - "3308:3306"
+    volumes:
+      - ./db/transfer-db-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - transfer_db_data:/var/lib/mysql
+
+  auth-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: auth_db
+    ports:
+      - "3309:3306"
+    volumes:
+      - ./db/auth-db-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - auth_db_data:/var/lib/mysql
+
+  # ============================================================
+  # SERVICES
+  # ============================================================
   gateway:
     build:
       context: .
@@ -18,7 +58,10 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - db
+      - asset
+      - ward
+      - transfer
+      - auth
 
   asset:
     build:
@@ -27,8 +70,14 @@ services:
     command: node asset-service.js
     ports:
       - "3001:3001"
+    environment:
+      DB_HOST: asset-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: asset_db
     depends_on:
-      - db
+      - asset-db
 
   ward:
     build:
@@ -37,8 +86,14 @@ services:
     command: node ward-service.js
     ports:
       - "3002:3002"
+    environment:
+      DB_HOST: ward-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: ward_db
     depends_on:
-      - db
+      - ward-db
 
   transfer:
     build:
@@ -47,8 +102,14 @@ services:
     command: node transfer-service.js
     ports:
       - "3003:3003"
+    environment:
+      DB_HOST: transfer-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: transfer_db
     depends_on:
-      - db
+      - transfer-db
 
   auth:
     build:
@@ -57,8 +118,15 @@ services:
     command: node auth-service.js
     ports:
       - "3004:3004"
+    environment:
+      DB_HOST: auth-db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: auth_db
+      JWT_SECRET: hospital_asset_jwt_secret_change_in_prod
     depends_on:
-      - db
+      - auth-db
 
   frontend:
     build:
@@ -68,3 +136,9 @@ services:
       - "5173:5173"
     depends_on:
       - gateway
+
+volumes:
+  asset_db_data:
+  ward_db_data:
+  transfer_db_data:
+  auth_db_data:

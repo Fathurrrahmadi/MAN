@@ -1,6 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2');
 const QRCode = require('qrcode');
+const axios = require('axios');
 const { graphqlHTTP } = require('express-graphql');
 const { buildSchema } = require('graphql');
 require('dotenv').config();
@@ -15,6 +16,26 @@ const db = mysql.createPool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME
 }).promise();
+
+// ==========================================
+// NOTIFICATION HELPER
+// ==========================================
+// notifikasi now lives only in transfer-db (database-per-service).
+// asset-service logs notifications by calling transfer-service's
+// GraphQL mutation instead of writing to a local table — same
+// cross-service pattern transfer-service already uses to reach
+// asset-service. Failures here are non-fatal: a notification
+// hiccup should never block the underlying asset/maintenance write.
+async function notify(tier, teks) {
+    try {
+        await axios.post('http://transfer:3003/graphql', {
+            query: 'mutation($tier: Int!, $teks: String!) { addNotification(tier: $tier, teks: $teks) { message } }',
+            variables: { tier, teks }
+        });
+    } catch (err) {
+        console.error('Failed to send notification to transfer-service:', err.message);
+    }
+}
 
 // ==========================================
 // GRAPHQL SCHEMA
@@ -222,10 +243,7 @@ const rootValue = {
             [asset_id, asset_name || '', type || '', finalReportDate, description, reporter || '']
         );
 
-        await db.query(
-            "INSERT INTO notifikasi (tier, teks) VALUES (?, ?)",
-            [2, "Laporan kerusakan baru untuk " + (asset_name || "Aset") + " (#" + asset_id + ")"]
-        );
+        await notify(2, "Laporan kerusakan baru untuk " + (asset_name || "Aset") + " (#" + asset_id + ")");
 
 
         return { message: 'Report created', id: result.insertId };
@@ -259,12 +277,10 @@ const rootValue = {
         var [rep] = await db.query("SELECT asset_name FROM maintenance_reports WHERE id = ?", [report_id]);
         var nama = rep.length > 0 ? rep[0].asset_name : "Aset";
 
-        await db.query(
-            "INSERT INTO notifikasi (tier, teks) VALUES (?, ?)",
-            [2, "Pemeliharaan " + (nama || "Aset") + " (#" + report_id + ") menjadi: " + (status || "Diperbaiki")]        );  
+        await notify(2, "Pemeliharaan " + (nama || "Aset") + " (#" + report_id + ") menjadi: " + (status || "Diperbaiki"));
 
         
-        return { message: 'Action logged and report updated.' };root
+        return { message: 'Action logged and report updated.' };
         
     }
 };
